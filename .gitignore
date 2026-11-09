@@ -1,3 +1,6 @@
 node_modules/
 scratch/
 *.log
+art/src-*
+tests/shots/
+tools/_cover.html

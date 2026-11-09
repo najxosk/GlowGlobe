@@ -1,157 +1,102 @@
-// Runtime smoke test for Glow Globe.
-// Loads the built index.html <script> into a mocked DOM/canvas and plays
-// through all European cities to verify the core loop and requested features.
-// Usage: node tests/verify.mjs
+// Static + logic checks for Glow Globe (no browser needed).  Usage: node tests/verify.mjs
+// The browser/gameplay tests live in tests/e2e.py (Playwright).
 import fs from "fs";
 import path from "path";
 import vm from "vm";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+const file = path.join(__dirname, "..", "index.html");
+const html = fs.readFileSync(file, "utf8");
 const m = html.match(/<script>([\s\S]*?)<\/script>/);
 if (!m) { console.error("no <script> found in index.html"); process.exit(1); }
 const js = m[1];
-
-const fakeLocal = {};
-const elements = {};
-function CC(){ this.on = new Set(); }
-CC.prototype.add = function(){ for (const a of arguments) this.on.add(a); };
-CC.prototype.remove = function(){ for (const a of arguments) this.on.delete(a); };
-CC.prototype.contains = function(c){ return this.on.has(c); };
-class El { constructor(){ this.style={}; this.dataset={}; this.innerHTML=""; this.textContent=""; this.classList=new CC(); } addEventListener(){} closest(){ return null; } }
-function makeCtx(){ return new Proxy({ measureText:(t)=>({width:t.length*7}), createLinearGradient:()=>({addColorStop(){}}), createRadialGradient:()=>({addColorStop(){}}), save(){},restore(){},beginPath(){},translate(){},scale(){},fill(){},stroke(){},fillRect(){},clearRect(){},moveTo(){},lineTo(){},closePath(){},arc(){},setTransform(){}, globalAlpha:1, fillStyle:"#000", strokeStyle:"#000", lineWidth:1 }, { get:(o,p)=> (p in o)? o[p] : (()=>{}) }); }
-class Canv { constructor(){ this.width=800; this.height=600; this.style={}; this.ctx=makeCtx(); this.addEventListener=()=>{}; } getContext(){ return this.ctx; } }
-const cv = new Canv(); elements["#cv"] = cv;
-function q(s){ if(!elements[s]) elements[s]=new El(); return elements[s]; }
-const g = {
-  document: { querySelector:q, querySelectorAll:()=>[], addEventListener(){}, documentElement:new El(), body:new El() },
-  localStorage: { getItem:k=>fakeLocal[k]??null, setItem:(k,v)=>{fakeLocal[k]=String(v);}, removeItem:k=>{delete fakeLocal[k];} },
-  navigator: { vibrate:()=>{} }, window: { addEventListener(){}, AudioContext:null, webkitAudioContext:null },
-  innerWidth:800, innerHeight:600, devicePixelRatio:1, performance:{now:()=>0},
-  requestAnimationFrame:()=>0, cancelAnimationFrame:()=>{},
-  addEventListener:()=>{},
-  setTimeout:(fn)=>{ fn(); return 0; }, clearTimeout:()=>{},
-  console, Math, Date, JSON, Set, Map, Array, Object, String, Number, Boolean, parseFloat, parseInt, isFinite,
-};
-const dq = g.document.querySelector;
-g.document.querySelector = function(s){ return s === "#cv" ? cv : dq(s); };
-
 let fails = 0;
-const ok = (cond, label) => { console.log((cond?"PASS":"FAIL") + "  " + label); if(!cond) fails++; };
+const ok = (cond, label) => { console.log((cond ? "PASS" : "FAIL") + "  " + label); if (!cond) fails++; };
 
-const ctx = vm.createContext(g);
-vm.runInContext(js, ctx);
-const run = (c) => vm.runInContext(c, ctx);
-ok(run("typeof FUNNY === 'object'"), "FUNNY continent blurbs present");
-ok(run("typeof audio.city === 'function'"), "audio vsuvka (rising melody hook) present");
-ok(run("typeof FUNNY_ICON === 'object'"), "FUNNY_ICON continent emoji present");
-ok(run("typeof CONT_EDU === 'object' && CONT_EDU['europe']"), "CONT_EDU educational facts present");
-ok(run("typeof CONT_IMG === 'object'"), "CONT_IMG image slots present");
-ok(run("Object.keys(CONT_IMG).length===6"), "CONT_IMG has all 6 continent slots");
-ok(run("(function(){var c=0;for(var k in CONT_IMG)if(CONT_IMG[k])c++;return c;})()")===0, "CONT_IMG empty (placeholder until Grok images added)");
+// ---- load the data + save code (everything before the audio section) in a sandbox with a fake DOM
+const store = {};
+const ctxStub = new Proxy({}, { get: (o, p) => (p in o ? o[p] : () => ({ addColorStop() {} })), set: (o, p, v) => { o[p] = v; return true; } });
+const sandbox = {
+  document: { querySelector: () => ({ getContext: () => ctxStub, style: {}, addEventListener() {} }) },
+  window: {}, innerWidth: 390, innerHeight: 844, devicePixelRatio: 1, addEventListener() {},
+  localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } },
+  console, Math, JSON, Set, Array, Object, Date,
+};
+vm.createContext(sandbox);
+vm.runInContext(js.slice(0, js.indexOf("/* ---- audio ---- */")), sandbox);
+vm.runInContext(js.slice(js.indexOf("var FUNNY="), js.indexOf("function enterContinentHero")), sandbox); // FUNNY, CONT_EDU, CONT_IMG
+const run = c => vm.runInContext(c, sandbox);
 
-vm.runInContext("S.regId='uk'; enterPlay();", ctx);
-ok(run("S.screen") === "play", "enterPlay goes to play screen");
-// cities must spread (camera bug regression, kept)
-const spread = run("(function(){ var mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9; for(var i=0;i<S.cities.length;i++){mnx=Math.min(mnx,S.cities[i].x);mxx=Math.max(mxx,S.cities[i].x);mny=Math.min(mny,S.cities[i].y);mxy=Math.max(mxy,S.cities[i].y);} return {xr:mxx-mnx,yr:mxy-mny}; })()");
-ok(spread.xr > 100 && spread.yr > 60, "cities spread across screen (" + Math.round(spread.xr) + "x" + Math.round(spread.yr) + ")");
-ok(run("typeof ROADS === 'object'"), "ROADS puzzle data present");
-ok(run("typeof NBR === 'object'"), "NBR adjacency map present");
+// ---- file facts
+const kb = Math.round(Buffer.byteLength(html) / 1024);
+console.log(`  index.html is ${kb} KB`);
+ok(!/<script[^>]+src=|<link[^>]+href=["']https?:|@import/i.test(html), "no external scripts / styles (works offline)");
+ok(!/electric ghost|the spark|\bspark\b/i.test(html), "no Electric Ghost / The Spark / 'spark' wording");
+ok(!/coming soon/i.test(html), "no 'coming soon' placeholder text");
+ok(/rel="icon"/.test(html), "inline favicon");
+ok(!/\bFUNNY_ICON\b|lonelyId/.test(html), "unfinished lonelyId / emoji icon placeholders are gone");
 
-// solution-count regression: every region must have 1..4 Hamiltonian paths
-(function(){
-  // re-derive solutions using the injected ROADS via brute-force in vm
-  const D = run("DATA");
-  let bad = [];
-  for (let ci=0;ci<D.length;ci++) for (let ri=0;ri<D[ci].regions.length;ri++){
-    const rid = D[ci].regions[ri].id;
-    const cnt = run("(function(){var ids=DATA.map(function(c){return c.id});return null;})()"); // placeholder
-  }
-  console.log("  (solution counts verified at build time)");
-})();
-
-// Solve UK via tapCity following a real Hamiltonian path of the roads
-// First: gather ROADS adjacency, then brute-force DFS in host scope to find a valid order
-const adj = run("(function(){var a={};var ids=DATA[0].regions[0].cities.map(function(c){return c.id;});for(var i=0;i<ids.length;i++){a[ids[i]]=(NBR['uk'][ids[i]]||[]).slice();}return a;})()");
-const cityIds = run("DATA[0].regions[0].cities.map(c=>c.id)");
-let sol = null, visited = new Set();
-function dfs(node, path){
-  if (sol) return;
-  visited.add(node); path.push(node);
-  if (path.length === cityIds.length){ sol = path.slice(); }
-  else for (const nx of (adj[node]||[])) if (!visited.has(nx)) dfs(nx, path);
-  path.pop(); visited.delete(node);
-}
-for (const c of cityIds) { if (!sol) dfs(c, []); }
-ok(!!sol, "UK has at least one Hamiltonian path (solver)");
-if (sol) {
-  run("S.regId='uk'; restartRegion(); enterPlay();");
-  for (let i=0;i<sol.length;i++) run("tapCity('"+sol[i]+"')");
-  ok(run("S.path.length") === cityIds.length, "solving via tapCity fills the path");
-  ok(run("S.save.doneRegions.indexOf('uk')>=0"), "completing UK region records doneRegions");
-}
-
-// illegal move: tapping a non-neighbor of the current trail end is rejected (use fr, not done yet)
-run("S.regId='fr'; restartRegion(); enterPlay();");
-run("tapCity('paris')");
-const frNbrs = run("(NBR['fr']['paris']||[])").concat(["paris"]);
-let frIds = run("DATA[0].regions[1].cities.map(c=>c.id)");
-var nonNbr = frIds.find(c => !frNbrs.includes(c));
-ok(!!nonNbr, "found non-neighbor city for illegal-move test");
-if (nonNbr) {
-  run("tapCity('"+nonNbr+"')");
-  ok(run("S.path.length") === 1 && !run("S.lit.has('"+nonNbr+"')"), "tapping non-neighbor is rejected (path unchanged)");
-}
-// undo + restart controls
-run("S.save.partial['fr']=[]; S.save.doneRegions=[]; saveS(S.save); S.regId='fr'; restartRegion(); enterPlay();");
-run("tapCity('paris')");
-const beforeUndo = run("S.path.length");
-run("undoCity()");
-ok(beforeUndo === 1 && run("S.path.length") === 0, "undo removes the latest city (start: " + beforeUndo + ")");
-run("S.regId='fr'; restartRegion(); enterPlay(); tapCity('paris'); restartRegion();");
-ok(run("S.path.length") === 0, "restart clears the path");
-
-// hint: must return a valid move (or null when no hints/neighbors)
-run("S.save.partial['fr']=[]; S.save.doneRegions=[]; saveS(S.save); S.regId='fr'; restartRegion(); enterPlay();");
-run("tapCity('paris')");
-const h = run("findNextMove(DATA[0].regions[1], S.path)");
-const frNbrsHost = run("(NBR['fr']['paris']||[])");
-ok(h === null || (frIds.includes(h) && frNbrsHost.includes(h)), "hint returns a real neighbor or null");
-
-// deficits: world% and continent lighting via et
+// ---- data
 const D = run("DATA");
-for (let ri=0; ri<D[0].regions.length; ri++){
-  const rid = run("DATA[0].regions["+ri+"].id");
-  run("S.regId='"+rid+"'; enterPlay(); restartRegion();");
-  // recompute a valid path for this region and play it
-  const a = run("(function(){var a={};var ids=DATA[0].regions["+ri+"].cities.map(function(c){return c.id;});for(var i=0;i<ids.length;i++){a[ids[i]]=(NBR['"+rid+"'][ids[i]]||[]).slice();}return a;})()");
-  const ids = run("DATA[0].regions["+ri+"].cities.map(c=>c.id)");
-  let s2=null, v2=new Set();
-  function dfsAll(){
-    for (const st of ids){ if(s2)break;
-      v2.clear();
-      (function dfs2(n,p){ if(s2)return; v2.add(n); p.push(n);
-        if(p.length===ids.length) s2=p.slice();
-        else for(const x of (a[n]||[])) if(!v2.has(x)) dfs2(x,p);
-        p.pop(); v2.delete(n); })(st,[]);
-    }
-  }
-  dfsAll();
-  if (!s2) { console.log("  NO SOL for", rid); continue; }
-  for (const id of s2) run("tapCity('"+id+"')");
+ok(D.length === 6, "6 continents");
+ok(D.reduce((n, c) => n + c.regions.length, 0) === 36, "36 regions");
+ok(D[0].id === "europe" && D[0].regions[0].id === "uk", "campaign starts Europe / United Kingdom");
+const cities = D.reduce((n, c) => n + c.regions.reduce((k, r) => k + r.cities.length, 0), 0);
+ok(cities === 219, `219 cities (${cities})`);
+const IMG = run("CONT_IMG");
+const imgOk = D.every(c => /^data:image\/(webp|jpeg|png);base64,/.test(IMG[c.id] || "") && IMG[c.id].length > 30000);
+ok(imgOk, "CONT_IMG has an embedded picture for all 6 continents");
+console.log("  continent picture sizes (KB, base64): " + D.map(c => c.id + "=" + Math.round(IMG[c.id].length / 1024)).join(" "));
+ok(D.every(c => run("FUNNY")[c.id] && run("CONT_EDU")[c.id]), "continent blurbs + facts present");
+
+// ---- every level solved by an independent solver
+function solve(ids, edges) {
+  const adj = {}; ids.forEach(i => adj[i] = []);
+  for (const [a, b] of edges) { adj[a].push(b); adj[b].push(a); }
+  let sols = 0, nodes = 0; const vis = new Set();
+  const dfs = (n, d) => { nodes++; if (d === ids.length) { sols++; return; } for (const x of adj[n]) if (!vis.has(x)) { vis.add(x); dfs(x, d + 1); vis.delete(x); } };
+  for (const s of ids) { vis.add(s); dfs(s, 1); vis.delete(s); }
+  return { sols: sols / 2, nodes };
 }
-ok(run("S.save.doneRegions.length") === D[0].regions.length, "all Europe regions done");
-ok(run("S.save.doneContinents.indexOf('europe')>=0"), "whole continent lights after last city");
-ok(run("earthPct(S.save)") >= 16, "earth percentage reflects progress");
-ok(run("typeof FUNNY_ICON === 'object'"), "FUNNY_ICON continent emoji present");
+const ROADS = run("ROADS");
+let allSolvable = true, rows = [];
+const effort = {};
+for (const c of D) for (const r of c.regions) {
+  const ids = r.cities.map(x => x.id);
+  const edgesOk = ROADS[r.id].every(([a, b]) => ids.includes(a) && ids.includes(b) && a !== b);
+  const s = solve(ids, ROADS[r.id]);
+  effort[r.id] = s.nodes;
+  if (!edgesOk || s.sols < 1) { allSolvable = false; console.log("  UNSOLVABLE/BAD:", r.id); }
+  rows.push(`${r.id}:${ids.length}c/${ROADS[r.id].length}r/${s.sols}sol/${s.nodes}n`);
+}
+ok(allSolvable, "all 36 levels have a valid road graph and at least one full route (solver)");
+console.log("  " + rows.join("  "));
 
-// Resume: Continue must restore last continent/region
-run("S.save.currentContinent='south-america'; S.save.currentRegion='ar'; saveS(S.save);");
-run("S.save.currentContinent='south-america'; S.save.currentRegion='ar'; S.save.doneRegions=['uk']; hasProgress(S.save);");
-run("S.contId=S.save.currentContinent; S.regId=S.save.currentRegion;");
-ok(run("S.contId") === "south-america" && run("S.regId") === "ar", "resume reads saved continent/region");
+// ---- difficulty curve: within each continent effort never drops, 8-city levels come late, finale is the hardest
+let monotone = true;
+for (const c of D) for (let i = 1; i < c.regions.length; i++) if (effort[c.regions[i].id] < effort[c.regions[i - 1].id]) monotone = false;
+ok(monotone, "inside every continent the levels get harder (search effort never drops)");
+const eight = D.map(c => c.regions.map((r, i) => ({ r, i, n: c.regions.length })).filter(x => x.r.cities.length >= 8)).flat();
+ok(eight.every(x => x.i >= x.n - 2), "8-city levels are the last two of their continent");
+const means = D.map(c => c.regions.reduce((s, r) => s + effort[r.id], 0) / c.regions.length);
+ok(means[0] === Math.min(...means), "Europe is the easiest continent (intro)");
+ok(means[means.length - 1] === Math.max(...means), "the last continent is the hardest");
+const lastRegions = D[D.length - 1].regions;
+ok(effort[lastRegions[lastRegions.length - 1].id] >= Math.max(...Object.values(effort)) * 0.7, "the game does not end on easy content");
+ok(Math.max(...D[0].regions.map(r => effort[r.id])) <= 100, "first continent stays gentle (<=100 search nodes)");
 
-console.log(fails === 0 ? "ALL CHECKS PASSED" : (fails + " CHECK(S) FAILED"));
-process.exit(fails === 0 ? 0 : 1);
+// ---- save / load (v1 and v2 accepted)
+const KEY = run("SAVE_KEY");
+const mk = v => JSON.stringify({ v, sound: false, tutorial: 1, hints: { uk: 1 }, currentContinent: "asia", currentRegion: "jp", partial: { jp: ["tokyo"] }, doneRegions: ["uk", "nope"], doneContinents: [] });
+store[KEY] = mk(1); let s1 = run("load()");
+ok(s1.doneRegions.join() === "uk" && s1.currentRegion === "jp" && s1.sound === false, "load() accepts a v1 save (and drops unknown ids)");
+store[KEY] = mk(2); let s2 = run("load()");
+ok(s2.doneRegions.join() === "uk" && s2.partial.jp[0] === "tokyo", "load() accepts a v2 save");
+run("var S0=load();S0.doneRegions.push('fr');saveS(S0)");
+ok(run("load()").doneRegions.join() === "uk,fr", "save -> load round-trip keeps progress");
+store[KEY] = "{broken"; ok(run("load()").doneRegions.length === 0, "corrupt save falls back to fresh");
+store[KEY] = JSON.stringify({ v: 99 }); ok(run("load()").doneRegions.length === 0, "unknown version falls back to fresh");
+
+console.log(fails ? `\n${fails} CHECK(S) FAILED` : "\nALL CHECKS PASSED");
+process.exit(fails ? 1 : 0);
