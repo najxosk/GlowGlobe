@@ -31,6 +31,7 @@ Finish a country and it glows with **its own AI-made night scene** - Big Ben, th
 **Features**
 - 6 continents, 36 levels (6 / 7 / 6 / 6 / 5 / 6), 6-9 cities each, a gentle start for every new rule and difficulty rising inside every continent
 - Every level has exactly one solution (checked by two independent solvers in the test suite)
+- Clear glowing roads (dark outline, bright body, gold pulse on the roads you can take next) that curve around cities instead of hiding behind them
 - A short intro on every continent (goal + a drawn example of each rule), shown the first time you enter it - start anywhere you like - and a "?" button to read the rules again
 - 36 AI-generated country scenes (one per level, shown when you finish a country, plus thumbnails in the list) and 36 fun facts
 - Stars, a Glow Atlas, automatic saving (close the tab and continue later)

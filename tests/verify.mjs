@@ -34,6 +34,12 @@ const kb = Math.round(Buffer.byteLength(html) / 1024);
 console.log(`  index.html is ${kb} KB`);
 ok(!/<script[^>]+src=|<link[^>]+href=["']https?:|@import/i.test(html), "no external scripts / styles (works offline)");
 ok(!/electric ghost|the spark|\bspark\b/i.test(html), "no Electric Ghost / The Spark / 'spark' wording");
+{ const area = r => { let a = 0; for (let j = 0; j < r.length; j++) { const p = r[j], q = r[(j + 1) % r.length]; a += p[0] * q[1] - q[0] * p[1]; } return Math.abs(a) / 2; };
+  const ln = k => JSON.parse(html.split("\n").find(l => l.startsWith(k)).slice(k.length).replace(/;\s*$/, ""));
+  const rg = ln("var RINGS = "), land = ln("var LAND = "); let deg = 0;
+  Object.values(rg).forEach(rs => rs.forEach(r => { if (new Set(r.map(p => p.join())).size < 4 || area(r) <= 0.0005) deg++; }));
+  land.forEach(r => { if (new Set(r.map(p => p.join())).size < 4 || area(r) <= 0.0005) deg++; });
+  ok(deg === 0, "no degenerate map rings (they were drawn as stray line segments, e.g. next to Port Lincoln); found " + deg); }
 ok(!/coming soon/i.test(plain), "no 'coming soon' placeholder text");
 ok(/rel="icon"/.test(html), "inline favicon");
 ok(!/\bFUNNY_ICON\b|lonelyId/.test(html), "unfinished lonelyId / emoji icon placeholders are gone");

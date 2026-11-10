@@ -113,9 +113,16 @@ def geometry_checks(pg, label):
           if(hit(cs[i].x,cs[i].y,'touch')!==cs[i].c.id)badHit++;
           var nj=-1,nd=1e9;for(var k=0;k<n;k++)if(k!==i){var d=Math.hypot(cs[i].x-cs[k].x,cs[i].y-cs[k].y);if(d<nd){nd=d;nj=k;}}
           var f=Math.min(0.45,26/nd),tx=cs[i].x+(cs[nj].x-cs[i].x)*f,ty=cs[i].y+(cs[nj].y-cs[i].y)*f;if(hit(tx,ty,'touch')!==cs[i].c.id)offHit++;}
-        out.push({id:r.id,hidden:hidden,ov:ov,minD:Math.round(minD),badHit:badHit,offHit:offHit,oob:oob});});});
+        var nearRoad=0,tight=0,pz=S.pz,by={};
+        pz.r.forEach(function(e){var a=id2city[e[0]],b=id2city[e[1]];(by[e[0]]=by[e[0]]||[]).push(e);(by[e[1]]=by[e[1]]||[]).push(e);
+          cs.forEach(function(c){var id=c.c.id;if(id===e[0]||id===e[1])return;var d=1e9;for(var t=0.04;t<0.97;t+=0.04){var q=roadPt(a,b,t);d=Math.min(d,Math.hypot(c.x-q.x,c.y-q.y));}if(d<14)nearRoad++;});});
+        function dir(id,e){var a=id2city[e[0]],b=id2city[e[1]],o=(id===e[0])?roadPt(a,b,0.04):roadPt(b,a,0.04),c=id2city[id];return Math.atan2(o.y-c.y,o.x-c.x);}
+        for(var id in by){var l=by[id];for(var i2=0;i2<l.length;i2++)for(var j2=i2+1;j2<l.length;j2++){var dd=Math.abs(dir(id,l[i2])-dir(id,l[j2]));dd=Math.min(dd,2*Math.PI-dd)*180/Math.PI;if(dd<16)tight++;}}
+        out.push({id:r.id,hidden:hidden,ov:ov,minD:Math.round(minD),badHit:badHit,offHit:offHit,oob:oob,nearRoad:nearRoad,tight:tight});});});
       S.save=fresh();saveS(S.save);return out;}""")
     bad = [r for r in res if r['ov'] or r['badHit'] or r['offHit'] or r['oob']]
+    badroad = [r for r in res if r['nearRoad'] or r['tight']]
+    ok(not badroad, f'{label}: no road runs through / within 14px of a third city and no two roads leave a city closer than 16 degrees' + ('' if not badroad else ' -> ' + json.dumps(badroad)))
     hidden = sum(r['hidden'] for r in res)
     print(f'  {label}: min city distance {min(r["minD"] for r in res)}px, hidden labels {hidden}')
     ok(not bad, f'{label}: no overlapping labels / tap misses / off-screen labels in all 36 levels' + ('' if not bad else ' -> ' + json.dumps(bad)))
