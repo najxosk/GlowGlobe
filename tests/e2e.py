@@ -103,7 +103,7 @@ def undo_flow_checks(pg, touch, cdp, label):
     pg.evaluate("S.save=fresh();saveS(S.save);")
 
 def geometry_checks(pg, label):
-    res = pg.evaluate("""()=>{var out=[];S.save.seen={basic:1,num:1,one:1,gate:1,frag:1,ord:1,mix:1};S.save.tutorial=1;
+    res = pg.evaluate("""()=>{var out=[];S.save.seen={'c:europe':1,'c:oceania':1,'c:south-america':1,'c:africa':1,'c:north-america':1,'c:asia':1};S.save.tutorial=1;
       DATA.forEach(function(co){co.regions.forEach(function(r){S.regId=r.id;enterPlay();
         var cs=S.cities,n=cs.length,hidden=0,ov=0,minD=1e9,badHit=0,offHit=0,oob=0;
         for(var i=0;i<n;i++){if(cs[i].hide)hidden++;
@@ -223,6 +223,14 @@ def layout_change_checks(pg, touch, label):
     pg.click('#b-play'); pg.wait_for_timeout(300)
     ok(pg.evaluate("S.regId") == 'de' and pg.evaluate("S.path.length") == 1 and pg.evaluate("S.path[0]") == pg.evaluate("S.pz.s"), f'{label} old partial route with a city that no longer exists (Leipzig) is reset to the start of the new Germany level')
     ok(pg.evaluate("S.save.stars.fr") == 2 and len(pg.evaluate("S.save.doneRegions")) == 4, f'{label} finished countries and their stars survive the new layout')
+    # a route in progress that happens to be valid in the new layout is still dropped when the save comes from the old layout, and kept when it is current
+    sol = pg.evaluate("PUZ.de.sol")
+    set_save(pg, dict(base, partial={'de': sol[:3]}, undos={'de': 1}))
+    pg.click('#b-play'); pg.wait_for_timeout(300)
+    ok(pg.evaluate("S.path.length") == 1 and pg.evaluate("S.save.lv") == 5, f'{label} v4 save from the old layout: the route in progress starts over (layout version 5)')
+    set_save(pg, dict(base, lv=5, partial={'de': sol[:3]}, undos={'de': 1}))
+    pg.click('#b-play'); pg.wait_for_timeout(300)
+    ok(pg.evaluate("S.path.length") == 3 and pg.evaluate("S.save.undos.de") == 1, f'{label} v4 save of the current layout: the route in progress and undo count are kept')
     # Africa: a finished country that now sits later/earlier in the order must never show a lock
     set_save(pg, dict(base, doneRegions=['eg', 'za', 'et'], stars={'eg': 3, 'za': 2, 'et': 3}, partial={}, currentContinent='africa', currentRegion='ke'))
     pg.click('button[id="b-con:africa"]'); pg.wait_for_timeout(200)
@@ -231,6 +239,57 @@ def layout_change_checks(pg, touch, label):
     ok(pg.evaluate("Array.from(document.querySelectorAll('.regcell')).length") == 6, f'{label} Africa list shows its 6 countries')
     pg.click('#ov-cont #b-close'); pg.wait_for_timeout(100)
     set_save(pg, {'v': 4, 'sound': True, 'tutorial': 1, 'undos': {}, 'stars': {}, 'seen': {'basic': 1}, 'currentContinent': 'europe', 'currentRegion': 'uk', 'partial': {}, 'doneRegions': [], 'doneContinents': []})
+
+
+INTRO = {  # continent -> (first level, rule titles that must be shown, rule titles that must NOT be shown)
+    'europe': ('uk', [], ['number clues', 'one-way roads', 'order arrows']),
+    'oceania': ('tas', ['number clues'], ['one-way roads', 'order arrows']),
+    'south-america': ('ec', ['one-way roads', 'number clues'], ['order arrows']),
+    'africa': ('eg', ['order arrows'], ['number clues', 'one-way roads']),
+    'north-america': ('jm', ['number clues', 'one-way roads', 'order arrows'], []),
+    'asia': ('th', ['number clues', 'one-way roads', 'order arrows'], []),
+}
+def open_first(pg, cid, first):
+    pg.click(f'button[id="b-con:{cid}"]'); pg.wait_for_timeout(150)
+    pg.click(f'.regcell[data-id="{first}"]'); pg.wait_for_timeout(300)
+def intro_checks(pg, touch, label):
+    """Stefan: starting on any continent other than Europe left the player clueless. Every continent explains the goal + its rules the first time."""
+    tag = 'm' if touch else 'd'
+    fresh_save = lambda **kw: dict({'v': 4, 'lv': 5, 'sound': True, 'tutorial': 0, 'undos': {}, 'stars': {}, 'seen': {}, 'currentContinent': 'europe', 'currentRegion': 'uk', 'partial': {}, 'doneRegions': [], 'doneContinents': []}, **kw)
+    for cid, (first, must, mustnot) in INTRO.items():
+        set_save(pg, fresh_save())
+        open_first(pg, cid, first)
+        on = pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')")
+        txt = pg.inner_text('#ov-rule').lower() if on else ''
+        ok(on, f'{label} {cid}: the intro opens on the first level even though Europe was never played')
+        name = pg.evaluate("(c)=>findContinent(c).name.toUpperCase()", cid)
+        ok(('welcome to ' + name.lower()) in txt, f'{label} {cid}: intro is headed "WELCOME TO {name}"')
+        ok('the goal' in txt and 'lightning power plant' in txt and 'every city exactly once' in txt and 'along the roads' in txt and 'star' in txt, f'{label} {cid}: intro explains the goal (power plant, every city once along the roads, finish at the star)')
+        ok(all(m in txt for m in must) and not any(m in txt for m in mustnot), f'{label} {cid}: intro shows exactly this continent\'s rules {must or "(goal only)"}')
+        import re as _re
+        ok(not _re.search(r'\b(gate|gates|key|keys|bridge|bridges|fragile|dashed)\b', txt), f'{label} {cid}: intro has no gate / key / bridge wording')
+        ok(pg.locator('#ov-rule svg').count() == 1 + len(must), f'{label} {cid}: every rule in the intro has an example drawing ({1 + len(must)})')
+        r = pg.evaluate("()=>{var b=document.querySelector('#b-gotit').getBoundingClientRect();return [b.top>=0,b.bottom<=innerHeight,b.right<=innerWidth]}")
+        ok(all(r) or pg.evaluate("getComputedStyle(document.querySelector('#ov-rule .panel')).overflowY") in ('auto', 'scroll'), f'{label} {cid}: the intro button is on screen or the panel scrolls ({r})')
+        pg.screenshot(path=str(SHOTS / f'{tag}-intro-{cid}.png'))
+        pg.click('#b-gotit'); pg.wait_for_timeout(250)
+        ok(pg.evaluate("S.screen") == 'play' and pg.evaluate("S.regId") == first and pg.evaluate("S.path.length") == 1, f'{label} {cid}: after "Let\'s go" the level is ready (power plant lit)')
+        ok(pg.is_visible('#tut'), f'{label} {cid}: the tutorial hint is shown on the first level after the intro')
+        ok(pg.evaluate("S.save.seen['c:%s']" % cid) == 1, f'{label} {cid}: intro remembered')
+        pg.click('#b-menu'); pg.wait_for_timeout(150)
+        open_first(pg, cid, first)
+        ok(not pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')"), f'{label} {cid}: the intro is shown only once per continent')
+        pg.reload(); pg.wait_for_timeout(250)
+        open_first(pg, cid, first)
+        ok(not pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')"), f'{label} {cid}: ... also after a reload (saved)')
+        pg.click('#b-rules'); pg.wait_for_timeout(200)
+        ok(pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')") and 'rules of this level' in pg.inner_text('#ov-rule').lower(), f'{label} {cid}: the "?" button still shows the rules of the level')
+        pg.click('#b-gotit'); pg.wait_for_timeout(150)
+    # Asia seen first, Europe later: Europe still shows its own intro
+    set_save(pg, fresh_save(seen={'c:asia': 1}, currentContinent='asia', currentRegion='th'))
+    open_first(pg, 'europe', 'uk')
+    ok(pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')") and 'welcome to europe' in pg.inner_text('#ov-rule').lower(), f'{label} Asia seen first: Europe still shows its own intro the first time')
+    set_save(pg, fresh_save(tutorial=1))
 
 
 CONTS = ['europe', 'oceania', 'south-america', 'africa', 'north-america', 'asia']
@@ -256,8 +315,8 @@ with sync_playwright() as p:
 
     # ---- first level: rule card -> tutorial -> illegal taps -> dead end -> undo -> stars
     pg.click('#b-play'); pg.wait_for_timeout(250)
-    ok(pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')"), 'first level opens the "start, goal, one route" rule card')
-    ok('Start' in pg.inner_text('#ov-rule') and pg.locator('#ov-rule svg').count() >= 1, 'rule card has an icon/example drawing and a sentence')
+    ok(pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')"), 'first level opens the Europe intro (goal)')
+    ok('WELCOME TO EUROPE' in pg.inner_text('#ov-rule') and 'lightning power plant' in pg.inner_text('#ov-rule') and pg.locator('#ov-rule svg').count() == 1, 'Europe intro: the goal with one example drawing and no extra rules')
     pg.screenshot(path=str(SHOTS / 'm-02-rule-card-start-goal.png'))
     pg.click('#b-gotit'); pg.wait_for_timeout(250)
     ok(pg.evaluate("S.regId") == 'uk' and pg.evaluate("S.path.length") == 1, 'after the card the power plant is pre-lit (1 city)')
@@ -318,9 +377,9 @@ with sync_playwright() as p:
     pg.wait_for_function("document.querySelector('#ov-hero').classList.contains('on')", timeout=6000)
     ok(pg.evaluate("S.save.stars.pt") == 1, 'four undos -> 1 star saved')
 
-    # ---- first TWO levels of every continent with real touches; rule card must appear on the first one
+    # ---- first TWO levels of every continent with real touches; the continent intro must appear on the first one only
     expected_card = {'europe': 'uk', 'oceania': 'tas', 'south-america': 'ec', 'africa': 'eg', 'north-america': 'jm'}
-    shots = {'oceania': ('m-06-oceania-numbers.png', 'tas'), 'south-america': ('m-07-south-america-oneway.png', 'ec'), 'africa': ('m-08-africa-gates.png', 'eg'), 'north-america': ('m-09-north-america-fragile.png', 'jm')}
+    shots = {'oceania': ('m-06-oceania-numbers.png', 'tas'), 'south-america': ('m-07-south-america-oneway.png', 'ec'), 'africa': ('m-08-africa-order.png', 'eg'), 'north-america': ('m-09-north-america-mix.png', 'jm')}
     for cid in CONTS:
         regs = pg.evaluate("(c)=>DATA.find(x=>x.id===c).regions.map(r=>r.id)", cid)
         for k, rid in enumerate(regs[:2]):
@@ -331,7 +390,7 @@ with sync_playwright() as p:
                 pg.wait_for_function("document.querySelector('#ov-hero').classList.contains('on')", timeout=6000)
                 continue
             card = open_level(pg, rid, dismiss=False)
-            ok(card == (rid in ('tas', 'ec', 'eg', 'jm', 'cu', 'th')), f'{cid}/{rid}: rule card shown exactly on the teaching level (shown={card})')
+            ok(card == (k == 0), f'{cid}/{rid}: continent intro shown on the first level only (shown={card})')
             if card:
                 if cid in shots and rid == shots[cid][1]:
                     pg.screenshot(path=str(SHOTS / ('card-' + shots[cid][0])))
@@ -349,13 +408,13 @@ with sync_playwright() as p:
     # illegal-move messages for each rule on the real first levels
     # (the gentle teaching levels are small, so a refusal may only be reachable in a later level of the same continent)
     msgs = [(['tas', 'wa', 'sa', 'vic', 'qld', 'nz', 'nsw'], 'reserved', 'number'), (['ec', 'pe', 'ar', 'cl', 'co', 'br'], 'oneway', 'One-way'),
-            (['eg', 'ke', 'ma', 'za', 'et', 'ng'], 'gate', 'gate'), (['jm', 'ca', 'mx'], 'broken', 'dashed')]
+            (['eg', 'ke', 'ma', 'za', 'et', 'ng'], 'order', 'purple arrow')]
     for cands, want_code, word in msgs:
         found = None
         for rid in cands:
             open_level(pg, rid)
             found = pg.evaluate("""()=>{var pz=S.pz,want=%s,res=null;function go(p){if(res)return;var st=puzState(pz,p);var u=p[p.length-1];if(!puzMoves(pz,p).length)return;
-              for(var to in puzPrep(pz).out[u]){var w=puzCheck(pz,p,st.vis,st.broken,to);if(w&&w.indexOf(want)===0){res=[p.slice(),to];return;}}
+              for(var to in puzPrep(pz).out[u]){var w=puzCheck(pz,p,st.vis,to);if(w&&w.indexOf(want)===0){res=[p.slice(),to];return;}}
               var m=puzMoves(pz,p);for(var i=0;i<m.length&&!res;i++)go(p.concat([m[i]]));}go([pz.s]);return res;}""" % json.dumps(want_code))
             if found: break
         ok(found is not None, f'a {word} refusal is reachable in one of the {cands[0]}.. levels')
@@ -410,6 +469,7 @@ with sync_playwright() as p:
     ok(pg.evaluate("S.save.doneRegions.length") == 0, 'corrupt save falls back to a fresh game')
     regression_checks(pg, True, 'mobile')
     layout_change_checks(pg, True, 'mobile')
+    intro_checks(pg, True, 'mobile')
     b.close()
 
     # ================= desktop 1280x720 (mouse) =================
@@ -426,13 +486,14 @@ with sync_playwright() as p:
         regs = pg.evaluate("(c)=>DATA.find(x=>x.id===c).regions.map(r=>r.id)", cid)
         for rid in regs[:2]:
             solve_level(pg, False, rid, shot=f'd-card-{rid}.png' if rid in ('tas', 'jm') else None,
-                        mid_shot={'tas': 'd-03-numbers.png', 'ec': 'd-04-oneway.png', 'eg': 'd-05-gates.png', 'jm': 'd-06-fragile.png', 'cu': 'd-07-order.png', 'th': 'd-08-asia-mix.png'}.get(rid))
+                        mid_shot={'tas': 'd-03-numbers.png', 'ec': 'd-04-oneway.png', 'eg': 'd-05-order.png', 'jm': 'd-06-na-mix.png', 'cu': 'd-07-na-mix2.png', 'th': 'd-08-asia-mix.png'}.get(rid))
     pg.reload(); pg.wait_for_timeout(250)
     ok(pg.evaluate("S.save.doneRegions.length") >= 12, f'desktop: 12 levels persisted after reload ({pg.evaluate("S.save.doneRegions.length")})')
     ok(pg.evaluate("Object.keys(S.save.stars).length") >= 12, 'desktop: stars persisted after reload')
-    pg.evaluate("S.save.seen.mix=1;S.regId='in';enterPlay();"); pg.wait_for_timeout(300); pg.screenshot(path=str(SHOTS / 'd-09-india-hardest.png'))
+    pg.evaluate("S.save.seen['c:asia']=1;S.regId='in';enterPlay();"); pg.wait_for_timeout(300); pg.screenshot(path=str(SHOTS / 'd-09-india-hardest.png'))
     regression_checks(pg, False, 'desktop')
     layout_change_checks(pg, False, 'desktop')
+    intro_checks(pg, False, 'desktop')
     b.close()
 
 print('\nConsole/page errors:', len(errors))

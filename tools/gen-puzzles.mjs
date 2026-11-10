@@ -51,31 +51,32 @@ const ADD = {
 // ---- level plan: order inside each continent = difficulty order. t = target search effort.
 // f: num = max clues, one = one-way roads, gate = number of keys/gates, frag = fragile bridges, ord = max order arrows
 const PLAN = {
-  // Difficulty design (round 5): the first 1-2 levels of a new rule use ONE small instance (see cap), at most 2 rule TYPES per level
-  // before Asia (numbers, one-way, gates, fragile, order arrows each count as one type), Asia: 2 types in the first half, 3 at the end.
-  // max = max cities (extra cities are dropped), cap = max number of roads of that kind (1 one-way, 2 gate, 3 fragile), t = target effort.
+  // Rules left in the game (round 6): number clues (num), one-way roads (one), order arrows (ord). Gates/keys and fragile bridges were removed.
+  // Identity: Europe = basic, Oceania = numbers, South America = one-way, Africa = order arrows, North America = gentle mix of two,
+  // Asia = mix (2 types in the first three levels, 3 at the end). max = max cities, cap = max roads of a kind (1 = one-way), t = target effort.
+  // first: true = a teaching level that stays first inside its continent.
   europe: [
-    { id: 'uk', t: 8, max: 6, card: 'basic', f: {} }, { id: 'pt', t: 12, max: 6, f: {} }, { id: 'fr', t: 18, max: 7, f: {} },
+    { id: 'uk', t: 8, max: 6, first: true, f: {} }, { id: 'pt', t: 12, max: 6, f: {} }, { id: 'fr', t: 18, max: 7, f: {} },
     { id: 'it', t: 26, max: 7, f: {} }, { id: 'de', t: 34, max: 7, f: {} }, { id: 'es', t: 44, max: 8, f: {} }],
   oceania: [
-    { id: 'tas', t: 10, max: 6, card: 'num', f: { num: 1 } }, { id: 'wa', t: 15, max: 6, f: { num: 2 }, slack: 1 }, { id: 'sa', t: 22, max: 6, f: { num: 2 } },
+    { id: 'tas', t: 10, max: 6, first: true, f: { num: 1 } }, { id: 'wa', t: 15, max: 6, f: { num: 2 }, slack: 1 }, { id: 'sa', t: 22, max: 6, f: { num: 2 } },
     { id: 'vic', t: 30, max: 7, f: { num: 3 } }, { id: 'qld', t: 38, max: 7, f: { num: 3 } }, { id: 'nz', t: 48, max: 8, f: { num: 3 } }, { id: 'nsw', t: 58, max: 8, f: { num: 4 } }],
   'south-america': [
-    { id: 'ec', t: 10, max: 6, card: 'one', f: { one: 1 }, cap: { 1: 3 } }, { id: 'pe', t: 16, max: 6, f: { one: 1 }, cap: { 1: 4 } },
+    { id: 'ec', t: 10, max: 6, first: true, f: { one: 1 }, cap: { 1: 3 } }, { id: 'pe', t: 16, max: 6, f: { one: 1 }, cap: { 1: 4 } },
     { id: 'ar', t: 24, max: 7, f: { one: 1, num: 2 }, cap: { 1: 4 } }, { id: 'co', t: 34, max: 7, f: { one: 1, num: 2 }, cap: { 1: 4 } },
     { id: 'cl', t: 44, max: 7, f: { one: 1, num: 3 }, cap: { 1: 4 } }, { id: 'br', t: 56, max: 8, f: { one: 1, num: 3 }, cap: { 1: 4 } }],
   africa: [
-    { id: 'eg', t: 10, max: 6, card: 'gate', f: { gate: 1 }, cap: { 2: 1 } }, { id: 'ke', t: 16, max: 7, f: { gate: 1 }, cap: { 2: 2 } },
-    { id: 'ma', t: 24, max: 7, f: { gate: 2 }, cap: { 2: 2 } }, { id: 'et', t: 34, max: 7, f: { gate: 1, one: 1 }, cap: { 2: 2, 1: 3 } },
-    { id: 'za', t: 44, max: 8, f: { gate: 2, num: 2 }, cap: { 2: 2 } }, { id: 'ng', t: 56, max: 8, f: { gate: 2, one: 1 }, cap: { 2: 2, 1: 3 } }],
+    { id: 'eg', t: 10, max: 6, first: true, f: { ord: 1 } }, { id: 'ke', t: 16, max: 7, f: { ord: 1 } },
+    { id: 'ma', t: 24, max: 7, f: { ord: 2 } }, { id: 'za', t: 32, max: 7, f: { ord: 2 } },
+    { id: 'et', t: 42, max: 8, f: { ord: 2 } }, { id: 'ng', t: 52, max: 8, f: { ord: 2 } }],
   'north-america': [
-    { id: 'jm', t: 10, max: 6, card: 'frag', f: { frag: 1 }, cap: { 3: 2 } }, { id: 'cu', t: 16, max: 6, card: 'ord', f: { ord: 1 } },
-    { id: 'ca', t: 26, max: 7, f: { frag: 1, ord: 1 }, cap: { 3: 2 } }, { id: 'us', t: 36, max: 7, f: { gate: 1, ord: 2 }, cap: { 2: 2 } },
-    { id: 'mx', t: 46, max: 8, f: { one: 1, frag: 1 }, cap: { 1: 3, 3: 2 } }],
+    { id: 'jm', t: 12, max: 6, first: true, f: { num: 1, one: 1 }, cap: { 1: 3 } }, { id: 'cu', t: 18, max: 6, f: { one: 1, ord: 1 }, cap: { 1: 3 } },
+    { id: 'ca', t: 26, max: 7, f: { num: 2, ord: 1 } }, { id: 'us', t: 34, max: 7, f: { one: 1, ord: 2 }, cap: { 1: 4 } },
+    { id: 'mx', t: 44, max: 8, f: { num: 2, one: 1 }, cap: { 1: 3 } }],
   asia: [
-    { id: 'th', t: 16, max: 7, card: 'mix', f: { num: 2, gate: 1 }, cap: { 2: 2 } }, { id: 'jp', t: 26, max: 8, f: { one: 1, num: 2 }, cap: { 1: 4 } },
-    { id: 'id', t: 36, max: 8, f: { gate: 1, ord: 1 }, cap: { 2: 2 } }, { id: 'kr', t: 48, max: 8, f: { num: 2, one: 1, frag: 1 }, cap: { 1: 3, 3: 2 } },
-    { id: 'cn', t: 60, max: 9, f: { gate: 1, one: 1, ord: 2 }, cap: { 1: 3, 2: 2 } }, { id: 'in', t: 74, max: 9, f: { num: 2, gate: 1, frag: 1 }, cap: { 2: 2, 3: 2 } }],
+    { id: 'th', t: 16, max: 7, first: true, f: { num: 1, one: 1 }, cap: { 1: 3 } }, { id: 'jp', t: 26, max: 8, f: { one: 1, ord: 1 }, cap: { 1: 4 } },
+    { id: 'id', t: 36, max: 8, f: { num: 2, ord: 1 } }, { id: 'kr', t: 48, max: 8, f: { num: 2, one: 1, ord: 1 }, cap: { 1: 3 } },
+    { id: 'cn', t: 60, max: 9, f: { num: 2, one: 1, ord: 2 }, cap: { 1: 3 } }, { id: 'in', t: 72, max: 9, f: { num: 3, one: 1, ord: 2 }, cap: { 1: 4 } }],
 };
 const CONT_ORDER = ['europe', 'oceania', 'south-america', 'africa', 'north-america', 'asia'];
 
@@ -215,7 +216,7 @@ function climb(best, region, cfg, rnd, f, allowFail, ids, n) {
 
 // ---- build everything
 const baseRegions = {}; const baseCont = {}; for (const c of base) { baseCont[c.id] = c; for (const r of c.regions) baseRegions[r.id] = r; }
-const PUZ = {}; const report = []; const solveInfo = {}; let seedN = +(process.env.SEED||23);
+const PUZ = {}; const report = []; const solveInfo = {}; let seedN = +(process.env.SEED||46);
 const DATA1 = CONT_ORDER.map(cid => ({
   id: cid, name: baseCont[cid].name, blurb: baseCont[cid].blurb,
   regions: PLAN[cid].map(cfg => {
@@ -225,7 +226,7 @@ const DATA1 = CONT_ORDER.map(cid => ({
     while (cfg.max && r.cities.length > cfg.max) { const cs0 = Math.cos(r.cities.reduce((q, c) => q + c.lat, 0) / r.cities.length * Math.PI / 180); let bi = -1, bd = 1e9;
       r.cities.forEach((c, i) => { if (i === 0) return; let m = 1e9; r.cities.forEach((d, j) => { if (i !== j) m = Math.min(m, Math.hypot((c.lon - d.lon) * cs0, c.lat - d.lat)); }); if (m < bd - 1e-9 || (Math.abs(m - bd) < 1e-9 && i > bi)) { bd = m; bi = i; } });
       r.cities.splice(bi, 1); }
-    if (cfg.card) r.card = cfg.card;
+    if (cfg.first) r.first = true;
     let res = null; for (let attempt = 0; attempt < 6 && !res; attempt++) res = generate(r, { ...cfg, attempt, tries: 400 + attempt * 600 }, (seedN += 7919));
     if (!res) throw new Error('no puzzle for ' + cfg.id);
     if (res.att) console.log('  (relaxed) ' + cfg.id);
@@ -235,8 +236,8 @@ const DATA1 = CONT_ORDER.map(cid => ({
   }),
 }));
 // inside each continent: rule-teaching levels stay first, the rest are ordered by measured hardness (search effort + dead ends)
-for (const c of DATA1) { const free = c.regions.filter(r => !r.card).sort((a, b) => a._H - b._H); let k = 0; c.regions = c.regions.map(r => r.card ? r : free[k++]); }
-for (const c of DATA1) for (const r of c.regions) delete r._H;
+for (const c of DATA1) { if (c.id === 'asia' || c.id === 'north-america' || c.id === 'europe') continue; /* these two keep the planned order (rule mix designed level by level) */ const free = c.regions.filter(r => !r.first).sort((a, b) => a._H - b._H); let k = 0; c.regions = c.regions.map(r => r.first ? r : free[k++]); }
+for (const c of DATA1) for (const r of c.regions) { delete r._H; delete r.first; }
 
 for (const c of DATA1) console.log(c.id.padEnd(14) + c.regions.map(r => r.id + ':' + r.cities.length + 'c/H' + (solveInfo[r.id])).join('  '));
 const puzJson = JSON.stringify(PUZ);
