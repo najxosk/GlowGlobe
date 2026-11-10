@@ -15,6 +15,10 @@ Made for **Super Free AI Game Jam #2**.
 - **Juice:** ring + glow pop on every city, light wave over the route and a bloom when a country is finished, rising pentatonic notes, vibration on phones.
 - **Country card:** finishing a level shows an AI-generated 480x320 night scene of the country (one landmark/landscape each) and a short true fun fact; finished countries get a thumbnail in the country list.
 
+## Made during the jam
+
+Super Free AI Game Jam #2 ran from 2026-11-08 02:10 UTC. This repository was created on 2026-11-08 21:04 UTC (GitHub's "created" time), after the jam started, and the game was built from scratch inside the jam: the first single-file build on 8 Nov, the puzzle edition ("v2": solver-verified levels, continents with rules, country scenes, intros, readable roads) on 9-10 Nov. Note: the author dates of some early commits are set to 11-14 Nov; GitHub's own push time for them is 8 Nov 21:04 UTC.
+
 ## How AI was used (also shown in the game, menu -> "How AI made this")
 
 - **Design & code:** the game design, all of the code and the puzzle generator were made with AI (Grok).

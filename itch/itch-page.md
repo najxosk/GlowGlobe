@@ -98,12 +98,12 @@ Puzzle, Logic, Casual, Relaxing, Singleplayer, Short, Geography, Touch-Friendly,
 4. **Classification:** Kind of project = **HTML**. Release status = Released. Genre = Puzzle.
 5. **Uploads:** click **Upload files**, choose `itch/glowglobe-html5.zip`. (The zip must have `index.html` at its top level, not inside a folder - this one does.)
 6. When the file is listed, tick **"This file will be played in the browser"**.
-7. **Embed options** (appear after ticking): 
-   - Viewport dimensions: **960 x 600** (any works, the game fills its frame), tick **"Automatically start on page load"** if you like, 
-   - tick **"Mobile friendly"** (and keep default orientation: "Portrait" works best, or leave as is since the game adapts), 
-   - tick **"Fullscreen button"**, 
-   - leave **"Enable scrollbars"** off (the game never scrolls), 
-   - tick "Click to launch in fullscreen" for mobile if offered.
+7. **Embed options** (appear after ticking):
+   - Viewport dimensions: **480 x 854** (portrait; the game fills its frame and adapts to any size - on small laptop screens 480 x 720 also works),
+   - tick **"Mobile friendly"** and set orientation to **Portrait**,
+   - tick **"Fullscreen button"** (and "Click to launch in fullscreen" for mobile if offered),
+   - leave **"Enable scrollbars"** off (the game never scrolls),
+   - "Automatically start on page load": optional (the game starts on its title screen either way).
 8. **Description:** paste the "Description" section, then the "Controls", "How AI was used" and "Credits" sections below it (use itch's markdown/headings).
 9. **Cover image:** upload `cover.png` (630x500). **Screenshots:** upload screenshots 05, 06, 09, 10, 11 from `screenshots/` plus `gameplay.gif` (itch accepts GIFs as screenshots; the GIF is ~2.3 MB, under itch's 3 MB limit). Add the video (`gameplay.mp4` via YouTube) under "Add a video".
 10. **Tags:** add the tags above. **Community:** comments on. **Visibility & access:** keep **Draft** until you have played it once on the project page.
