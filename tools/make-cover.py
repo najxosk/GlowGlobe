@@ -2,13 +2,13 @@
 import pathlib
 from playwright.sync_api import sync_playwright
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-bg = (ROOT / 'art' / 'asia.webp').as_uri(); shot = (ROOT / 'itch' / 'screenshots' / '09-mobile-asia-all-rules.png').as_uri()
+bg = (ROOT / 'art' / 'asia.webp').as_uri(); shot = (ROOT / 'itch' / 'screenshots' / '11-mobile-country-card-japan.png').as_uri()
 html = f"""<html><body style="margin:0;width:630px;height:500px;overflow:hidden;position:relative;background:#050814;font-family:system-ui,'Segoe UI',sans-serif">
 <div style="position:absolute;inset:0;background:url({bg}) center/cover;filter:brightness(.8) saturate(1.1)"></div>
 <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(5,8,20,.93) 0%,rgba(5,8,20,.75) 48%,rgba(5,8,20,.1) 100%)"></div>
 <div style="position:absolute;left:34px;top:92px;width:330px">
  <div style="font-size:62px;line-height:.98;font-weight:800;color:#ffe7b3;text-shadow:0 0 30px rgba(240,180,41,.75),0 0 4px rgba(240,180,41,.6)">Glow<br>Globe</div>
- <div style="margin-top:16px;font-size:20px;line-height:1.3;color:#e4ebf6">One start, one goal, one perfect route.<br><span style="color:#f0b429">A logic puzzle that lights up the Earth.</span></div>
+ <div style="margin-top:16px;font-size:20px;line-height:1.3;color:#e4ebf6">One start, one goal, one perfect route.<br><span style="color:#f0b429">Every country glows with its own scene.</span></div>
  <div style="margin-top:20px;display:inline-block;padding:7px 14px;border:1px solid #8a6416;border-radius:999px;color:#ffe7b3;font-size:14px;background:rgba(7,11,22,.6)">Puzzle &middot; Mobile &amp; PC &middot; No install</div>
 </div>
 <div style="position:absolute;right:30px;top:42px;width:196px;height:424px;border-radius:30px;border:3px solid #2b3a58;overflow:hidden;box-shadow:0 0 44px rgba(240,180,41,.45);transform:rotate(4deg)"><img src="{shot}" style="width:100%;height:100%;object-fit:cover"></div>

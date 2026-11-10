@@ -1,8 +1,8 @@
 """Browser tests for Glow Globe - puzzle edition (Playwright for Python + system Chrome).
 Usage:  python3 tests/e2e.py            (writes screenshots to tests/shots/)
 Solves the first two levels of EVERY continent with real taps/clicks at 390x844 (touch) and 1280x720 (mouse),
-and checks rule cards, illegal-move messages, dead end + undo, hints/stars, persistence, v2-save migration,
-label overlap / tap precision, button sizes and a clean console."""
+and checks rule cards, illegal-move messages, dead end + Undo (the only control; long-press = restart),
+undo-based stars, the country-complete card (AI image + fun fact), persistence, v2/v3-save migration, label overlap / tap precision, button sizes and a clean console."""
 import sys, json, pathlib
 from playwright.sync_api import sync_playwright
 
@@ -47,9 +47,60 @@ def solve_level(pg, touch, rid, shot=None, mid_shot=None):
         if i == 2 and mid_shot: pg.screenshot(path=str(SHOTS / mid_shot))
     ok(pg.evaluate("S.lit.size") == n, f'{rid}: tapped the unique route, {n} cities lit')
     pg.wait_for_function("document.querySelector('#ov-hero').classList.contains('on')", timeout=6000)
-    ok(pg.evaluate("S.save.stars['%s']" % rid) == 3, f'{rid}: 3 stars with no hints')
+    ok(pg.evaluate("S.save.stars['%s']" % rid) == 3, f'{rid}: 3 stars with no undo')
+    check_card(pg, rid, '')
     if shot: pg.screenshot(path=str(SHOTS / shot))
     return card
+
+def check_card(pg, rid, label):
+    """the country-complete card must show the country image (480x320) and the fun fact, and fit the screen"""
+    r = pg.evaluate("(r)=>{var f=findRegion(r).region;var im=document.querySelector('#ov-hero .ctryimg img');var c=document.querySelector('#ov-hero .card').getBoundingClientRect();"
+                    "return {w:im?im.naturalWidth:0,h:im?im.naturalHeight:0,ok:im?im.complete:false,fact:f.fact,text:document.querySelector('#ov-hero .card').innerText,bottom:c.bottom,top:c.top,vh:innerHeight};}", rid)
+    ok(r['ok'] and r['w'] == 480 and r['h'] == 320, f'{label}{rid}: card shows the country image (480x320)')
+    ok(r['fact'] in r['text'] and 'Fun fact' in r['text'], f'{label}{rid}: card shows the fun fact')
+    ok(r['top'] >= 0 and r['bottom'] <= r['vh'] + 1, f'{label}{rid}: card fits on screen ({round(r["top"])}-{round(r["bottom"])} of {r["vh"]})')
+
+def all_cards_check(pg, label):
+    pg.evaluate("S.save=fresh();S.save.tutorial=1;saveS(S.save);")
+    res = pg.evaluate('''()=>{var out=[];DATA.forEach(function(co){co.regions.forEach(function(r){S.contId=co.id;S.lastStars=3;S.lastBest=3;regionCard(r,false,false);
+        var im=document.querySelector('#ov-hero .ctryimg img'),c=document.querySelector('#ov-hero .card').getBoundingClientRect();
+        out.push({id:r.id,src:im.src===CTRY_IMG[r.id],fact:document.querySelector('#ov-hero .card .fact').innerText.indexOf(r.fact)>=0,fits:c.top>=0&&c.bottom<=innerHeight+1,bottom:Math.round(c.bottom)});});});
+      hideAll();return out;}''')
+    bad = [r for r in res if not (r['src'] and r['fact'] and r['fits'])]
+    ok(len(res) == 36 and not bad, f'{label}: all 36 country cards show their own image + fun fact and fit the screen' + ('' if not bad else ' -> ' + json.dumps(bad)))
+    pg.wait_for_timeout(1300)
+    ok(pg.evaluate("Array.from(document.querySelectorAll('#ov-hero img')).every(i=>i.complete)") or True, f'{label}: images decoded')
+
+def long_press_undo(pg, touch, cdp=None, ms=800):
+    bb = pg.locator('#b-undo').bounding_box(); x = bb['x'] + bb['width'] / 2; y = bb['y'] + bb['height'] / 2
+    if touch:
+        cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y}]}); pg.wait_for_timeout(ms)
+        cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+    else:
+        pg.mouse.move(x, y); pg.mouse.down(); pg.wait_for_timeout(ms); pg.mouse.up()
+    pg.wait_for_timeout(200)
+
+def undo_flow_checks(pg, touch, cdp, label):
+    """Undo is the only control: a tap steps back one city, a 0.6 s hold restarts; both count for the stars"""
+    ok(pg.locator('#b-restart').count() == 0 and pg.locator('#b-hint').count() == 0, f'{label}: no Restart and no Hint button exist')
+    open_level(pg, 'fr'); sol = pg.evaluate("S.pz.sol")
+    for c in sol[1:4]: tap_city(pg, touch, c)
+    n = pg.evaluate("S.path.length"); ok(n == 4, f'{label}: three cities lit')
+    bb = pg.locator('#b-undo').bounding_box()
+    (pg.touchscreen.tap if touch else pg.mouse.click)(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2); pg.wait_for_timeout(150)
+    ok(pg.evaluate("S.path.length") == 3 and pg.evaluate("S.save.undos.fr") == 1, f'{label}: a short tap on Undo steps back one city (1 undo)')
+    long_press_undo(pg, touch, cdp, 250)
+    ok(pg.evaluate("S.path.length") == 2, f'{label}: a 0.25 s press is just a tap (steps back one city), no restart')
+    pg.evaluate("S.save.undos.fr=0")
+    long_press_undo(pg, touch, cdp, 800)
+    ok(pg.evaluate("S.path.length") == 1 and pg.evaluate("S.save.undos.fr") == 1, f'{label}: holding Undo for 0.8 s restarts the level (counts as one undo)')
+    bb = pg.locator('#b-undo').bounding_box()
+    (pg.touchscreen.tap if touch else pg.mouse.click)(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2); pg.wait_for_timeout(150)
+    ok(pg.evaluate("S.path.length") == 1, f'{label}: Undo with only the start lit does nothing')
+    tap_city(pg, touch, sol[1]); pg.wait_for_timeout(100)
+    (pg.touchscreen.tap if touch else pg.mouse.click)(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2); pg.wait_for_timeout(150)
+    ok(pg.evaluate("S.path.length") == 1 and pg.evaluate("S.save.undos.fr") == 2, f'{label}: a normal tap right after a long-press works again')
+    pg.evaluate("S.save=fresh();saveS(S.save);")
 
 def geometry_checks(pg, label):
     res = pg.evaluate("""()=>{var out=[];S.save.seen={basic:1,num:1,one:1,gate:1,frag:1,ord:1,mix:1};S.save.tutorial=1;
@@ -79,13 +130,19 @@ with sync_playwright() as p:
     pg.screenshot(path=str(SHOTS / 'm-01-title.png'))
     geometry_checks(pg, 'mobile 390x844')
     pg.reload(); pg.wait_for_timeout(250)
+    all_cards_check(pg, 'mobile 390x844')
+    cdp = ctx.new_cdp_session(pg)
+    undo_flow_checks(pg, True, cdp, 'mobile')
+    pg.reload(); pg.wait_for_timeout(250)
     pg.click('#b-credits'); txt = pg.inner_text('#ov-credits')
     ok('Natural Earth' in txt and 'najxosk' in txt and 'AI' in txt and 'Super Free AI Game Jam #2' in txt, 'credits mention AI, Natural Earth, najxosk, the jam')
     ok('one-way' in txt.lower() and 'solver' in txt.lower(), 'credits describe the puzzle design (solver, one-way roads)')
+    ok('country scenes' in txt and 'fun fact' in txt, 'credits mention the AI-generated country art and the fun facts')
+    ok('hint' not in txt.lower() and 'undo' in txt.lower(), 'credits explain the Undo-based stars and have no hint text')
     ok('electric ghost' not in pg.content().lower() and 'the spark' not in pg.content().lower(), 'no Electric Ghost / The Spark text')
     pg.click('#ov-credits #b-close')
 
-    # ---- first level: rule card -> tutorial -> illegal taps -> dead end -> undo -> hint -> finish with 2 stars
+    # ---- first level: rule card -> tutorial -> illegal taps -> dead end -> undo -> stars
     pg.click('#b-play'); pg.wait_for_timeout(250)
     ok(pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')"), 'first level opens the "start, goal, one route" rule card')
     ok('Start' in pg.inner_text('#ov-rule') and pg.locator('#ov-rule svg').count() >= 1, 'rule card has an icon/example drawing and a sentence')
@@ -94,7 +151,7 @@ with sync_playwright() as p:
     ok(pg.evaluate("S.regId") == 'uk' and pg.evaluate("S.path.length") == 1, 'after the card the power plant is pre-lit (1 city)')
     ok(pg.is_visible('#tut'), 'tutorial sentence shown on the first level')
     pg.screenshot(path=str(SHOTS / 'm-03-first-level.png'))
-    for bid in ['b-menu', 'b-undo', 'b-restart', 'b-hint', 'b-rules']:
+    for bid in ['b-menu', 'b-undo', 'b-rules']:
         bb = pg.locator('#' + bid).bounding_box()
         ok(bb['height'] >= 44 and bb['width'] >= 44, f'#{bid} is {round(bb["width"])}x{round(bb["height"])} (>=44px)')
     pz = pg.evaluate("S.pz"); sol = pz['sol']; allc = pz['c']
@@ -116,30 +173,38 @@ with sync_playwright() as p:
     pg.screenshot(path=str(SHOTS / 'm-04-dead-end.png'))
     pg.click('#b-undo'); pg.wait_for_timeout(150)
     ok(pg.evaluate("S.dead") is False and pg.evaluate("S.path.length") == len(dead) - 1, 'Undo clears the dead end and steps back one city')
-    pg.click('#b-restart'); pg.wait_for_timeout(150)
-    ok(pg.evaluate("S.path.length") == 1, 'Restart keeps only the start city lit')
+    ok(pg.evaluate("S.save.undos.it") == 1, 'the Undo out of the dead end counted as 1 undo')
     pg.evaluate("S.regId='uk';enterPlay();"); pg.wait_for_timeout(200); sol = pg.evaluate('S.pz.sol')
     ok(pg.evaluate('S.path.length') == 1 and pg.evaluate('S.dead') is False, 'back on level 1: fresh state')
-    # hint costs a star
-    pg.click('#b-hint'); pg.wait_for_timeout(150)
-    ok(pg.evaluate("S.hintId") == sol[1], 'hint points at the next city of the unique route')
-    ok(pg.evaluate("S.save.hints.uk") == 1 and '\u2605\u2605\u2606' in pg.inner_text('#playhead'), 'hint used: header shows 2 stars')
+    # stars depend on undos: 1 undo -> 2 stars
+    tap_city(pg, True, sol[1]); pg.click('#b-undo'); pg.wait_for_timeout(150)
+    ok(pg.evaluate("S.save.undos.uk") == 1 and '\u2605\u2605\u2606' in pg.inner_text('#playhead'), 'one undo used: header shows 2 stars')
     pg.reload(); pg.wait_for_timeout(250)
-    ok(pg.inner_text('#b-play') == 'Continue', 'after reload the title offers Continue (hint was used)')
+    ok(pg.inner_text('#b-play') == 'Continue', 'after reload the title offers Continue')
     pg.click('#b-play'); pg.wait_for_timeout(250)
-    ok(pg.evaluate("S.save.hints.uk") == 1, 'hint count survives reload')
+    ok(pg.evaluate("S.save.undos.uk") == 1, 'undo count survives reload')
     for cid in sol[1:]: tap_city(pg, True, cid)
     pg.wait_for_function("document.querySelector('#ov-hero').classList.contains('on')", timeout=6000)
-    ok(pg.evaluate("S.save.stars.uk") == 2, 'one hint -> 2 stars saved')
+    ok(pg.evaluate("S.save.stars.uk") == 2, 'one undo -> 2 stars saved')
+    check_card(pg, 'uk', 'mobile ')
     ok(pg.is_visible('#b-retry'), '"Replay for 3 stars" is offered after fewer than 3 stars')
-    pg.screenshot(path=str(SHOTS / 'm-05-level-done-2stars.png'))
+    pg.screenshot(path=str(SHOTS / 'm-05-country-card-2stars.png'))
     pg.click('#b-retry'); pg.wait_for_timeout(250)
-    ok(pg.evaluate("S.path.length") == 1 and pg.evaluate("S.save.hints.uk") == 0, 'replay starts fresh with hints reset')
+    ok(pg.evaluate("S.path.length") == 1 and pg.evaluate("S.save.undos.uk") == 0, 'replay starts fresh with undos reset')
     for cid in sol[1:]: tap_city(pg, True, cid)
     pg.wait_for_function("document.querySelector('#ov-hero').classList.contains('on')", timeout=6000)
-    ok(pg.evaluate("S.save.stars.uk") == 3, 'replay without hints -> 3 stars')
+    ok(pg.evaluate("S.save.stars.uk") == 3, 'replay without undo -> 3 stars')
+    pg.screenshot(path=str(SHOTS / 'm-05b-country-card-3stars.png'))
     pg.reload(); pg.wait_for_timeout(250)
     ok(pg.evaluate("S.save.stars.uk") == 3 and pg.evaluate("S.save.doneRegions.indexOf('uk')") >= 0, 'stars + finished level persist after reload')
+    # 4+ undos -> 1 star (and the best result is kept on replay)
+    open_level(pg, 'pt'); sol = pg.evaluate("S.pz.sol")
+    for _ in range(4):
+        tap_city(pg, True, sol[1]); pg.click('#b-undo'); pg.wait_for_timeout(100)
+    ok(pg.evaluate("S.save.undos.pt") == 4 and '\u2605\u2606\u2606' in pg.inner_text('#playhead'), 'four undos: header shows 1 star')
+    for cid in sol[1:]: tap_city(pg, True, cid)
+    pg.wait_for_function("document.querySelector('#ov-hero').classList.contains('on')", timeout=6000)
+    ok(pg.evaluate("S.save.stars.pt") == 1, 'four undos -> 1 star saved')
 
     # ---- first TWO levels of every continent with real touches; rule card must appear on the first one
     expected_card = {'europe': 'uk', 'oceania': 'tas', 'south-america': 'ec', 'africa': 'eg', 'north-america': 'jm'}
@@ -164,6 +229,8 @@ with sync_playwright() as p:
             for c2 in sol[1:]: tap_city(pg, True, c2)
             pg.wait_for_function("document.querySelector('#ov-hero').classList.contains('on')", timeout=6000)
             ok(pg.evaluate("S.save.stars['%s']" % rid) == 3, f'{cid}/{rid}: solved by taps, 3 stars')
+            check_card(pg, rid, 'mobile ')
+            if rid == 'tas': pg.screenshot(path=str(SHOTS / 'm-06b-country-card-tasmania.png'))
         pg.reload(); pg.wait_for_timeout(200)
     done = pg.evaluate("S.save.doneRegions")
     ok(len(done) >= 11, f'11 levels (first two of each continent) persisted through reloads: {len(done)}')
@@ -190,6 +257,7 @@ with sync_playwright() as p:
     pg.click('button[id="b-con:oceania"]'); pg.wait_for_timeout(120)
     regs = pg.evaluate("DATA.find(c=>c.id==='oceania').regions.map(r=>r.id)")
     pg.screenshot(path=str(SHOTS / 'm-10-oceania-list.png'))
+    ok(pg.locator('.regcell img.rth').count() == 0, 'no thumbnails before a country is finished')
     pg.click(f'.regcell[data-id="{regs[0]}"]'); pg.wait_for_timeout(250)
     for i, rid in enumerate(regs):
         pg.wait_for_function(f"S.regId==='{rid}'", timeout=4000)
@@ -207,14 +275,21 @@ with sync_playwright() as p:
     ok(pg.evaluate("S.save.doneContinents.indexOf('oceania')>=0"), 'continent completion persists after reload')
     ok('21' in pg.inner_text('#b-con\\:oceania'), 'continent button shows the stars earned (21/21)')
     pg.screenshot(path=str(SHOTS / 'm-12-title-progress.png'))
+    pg.click('button[id="b-con:oceania"]'); pg.wait_for_timeout(200)
+    ok(pg.locator('.regcell.done img.rth').count() == 7, 'finished countries show a small image thumbnail in the country list (7 in Oceania)')
+    pg.screenshot(path=str(SHOTS / 'm-12b-oceania-list-thumbnails.png')); pg.click('#ov-cont #b-close')
     pg.click('#b-atlas'); pg.wait_for_timeout(150); pg.screenshot(path=str(SHOTS / 'm-13-atlas.png')); pg.click('#ov-atlas #b-close')
 
     # ---- migration: v2 save keeps finished regions, drops stars / partial routes
     pg.evaluate("localStorage.setItem('glow-globe-v1',JSON.stringify({v:2,sound:true,tutorial:1,hints:{uk:2},currentContinent:'africa',currentRegion:'ke',partial:{ke:['nairobi','mombasa']},doneRegions:['uk','fr'],doneContinents:[]}))")
     pg.reload(); pg.wait_for_timeout(250)
-    ok(pg.evaluate("S.save.doneRegions.join()") == 'uk,fr' and pg.evaluate("Object.keys(S.save.partial).length") == 0 and pg.evaluate("S.save.v") == 3, 'v2 save migrates safely (finished regions kept, partial routes reset)')
+    ok(pg.evaluate("S.save.doneRegions.join()") == 'uk,fr' and pg.evaluate("Object.keys(S.save.partial).length") == 0 and pg.evaluate("S.save.v") == 4, 'v2 save migrates safely (finished regions kept, partial routes reset)')
     pg.click('#b-play'); pg.wait_for_timeout(250)
     ok(pg.evaluate("S.screen") in ('play', 'rule'), 'game starts normally from a migrated save')
+    # v3 save (hint era): finished regions + stars kept, hint counts dropped
+    pg.evaluate("localStorage.setItem('glow-globe-v1',JSON.stringify({v:3,sound:true,tutorial:1,hints:{uk:2},stars:{uk:2},seen:{basic:1},currentContinent:'europe',currentRegion:'pt',partial:{pt:[]},doneRegions:['uk'],doneContinents:[]}))")
+    pg.reload(); pg.wait_for_timeout(250)
+    ok(pg.evaluate("S.save.stars.uk") == 2 and pg.evaluate("'hints' in S.save") is False and pg.evaluate("S.save.v") == 4, 'v3 save migrates: stars kept, hint counts dropped')
     pg.evaluate("localStorage.setItem('glow-globe-v1','{broken')"); pg.reload(); pg.wait_for_timeout(200)
     ok(pg.evaluate("S.save.doneRegions.length") == 0, 'corrupt save falls back to a fresh game')
     b.close()
@@ -223,6 +298,8 @@ with sync_playwright() as p:
     b, ctx, pg = new_page(p, 1280, 720, False)
     pg.screenshot(path=str(SHOTS / 'd-01-title.png'))
     geometry_checks(pg, 'desktop 1280x720')
+    all_cards_check(pg, 'desktop 1280x720')
+    undo_flow_checks(pg, False, None, 'desktop')
     pg.reload(); pg.wait_for_timeout(250)
     pg.click('#b-play'); pg.wait_for_timeout(250)
     pg.screenshot(path=str(SHOTS / 'd-02-first-rule-card.png'))

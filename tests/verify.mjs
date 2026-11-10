@@ -29,11 +29,12 @@ vm.runInContext(js.slice(js.indexOf("var FUNNY="), js.indexOf("function svgNode"
 const run = c => vm.runInContext(c, sandbox);
 
 // ---- file facts
+const plain = html.replace(/data:image\/[a-z]+;base64,[A-Za-z0-9+\/=]+/g, "");
 const kb = Math.round(Buffer.byteLength(html) / 1024);
 console.log(`  index.html is ${kb} KB`);
 ok(!/<script[^>]+src=|<link[^>]+href=["']https?:|@import/i.test(html), "no external scripts / styles (works offline)");
 ok(!/electric ghost|the spark|\bspark\b/i.test(html), "no Electric Ghost / The Spark / 'spark' wording");
-ok(!/coming soon/i.test(html), "no 'coming soon' placeholder text");
+ok(!/coming soon/i.test(plain), "no 'coming soon' placeholder text");
 ok(/rel="icon"/.test(html), "inline favicon");
 ok(!/\bFUNNY_ICON\b|lonelyId/.test(html), "unfinished lonelyId / emoji icon placeholders are gone");
 
@@ -104,7 +105,7 @@ for (const c of D) for (const r of c.regions) {
 ok(structOk, "puzzle data is well-formed (cities match, roads valid, clues valid, start != goal)");
 ok(allUnique, "EVERY level has exactly one solution (independent brute-force solver)");
 ok(allAgree, "the game's rule engine and the independent solver agree on every level");
-ok(storedOk, "the stored solution (used for hints) is the unique valid route");
+ok(storedOk, "the stored solution (used by the browser tests) is the unique valid route");
 console.log("  " + rowInfo.join("  "));
 
 // ---- rules appear in the right continent, earlier rules stay active
@@ -166,22 +167,59 @@ ok(engineWalk, "puzCheck accepts every step of every stored solution");
   ok(vm.runInContext("puzCheck", sandbox)(z4, ["a"], st4.vis, st4.broken, "b") === "order:c", "rules unit: order rule blocks a city until its predecessor is lit");
 }
 
-// ---- save / load (v1, v2 and v3 accepted; older saves keep finished regions but reset stars/progress)
+// ---- save / load (v1-v3 old, v4 current; older saves keep finished regions, stars of v3 are kept, v1/v2 stars reset)
 const KEY = run("SAVE_KEY");
-const mk = v => JSON.stringify({ v, sound: false, tutorial: 1, hints: { uk: 1 }, stars: { uk: 3, fr: 2 }, seen: { num: 1 }, currentContinent: "asia", currentRegion: "jp", partial: { jp: ["tokyo"] }, doneRegions: ["uk", "nope"], doneContinents: [] });
+const mk = v => JSON.stringify({ v, sound: false, tutorial: 1, hints: { uk: 1 }, undos: { jp: 2 }, stars: { uk: 3, fr: 2 }, seen: { num: 1 }, currentContinent: "asia", currentRegion: "jp", partial: { jp: ["tokyo"] }, doneRegions: ["uk", "nope"], doneContinents: [] });
+ok(run("fresh().v") === 4 && run("'hints' in fresh()") === false && run("typeof fresh().undos") === "object", "fresh save is v4, has undo counts and no hints");
 store[KEY] = mk(1); let s1 = run("load()");
 ok(s1.doneRegions.join() === "uk" && s1.currentRegion === "jp" && s1.sound === false, "load() accepts a v1 save (and drops unknown ids)");
 store[KEY] = mk(2); let s2 = run("load()");
-ok(s2.doneRegions.join() === "uk" && Object.keys(s2.partial).length === 0 && Object.keys(s2.stars).length === 0 && Object.keys(s2.hints).length === 0, "v2 save migrates: finished regions kept, partial routes/hints/stars reset");
+ok(s2.doneRegions.join() === "uk" && Object.keys(s2.partial).length === 0 && Object.keys(s2.stars).length === 0 && Object.keys(s2.undos).length === 0 && !("hints" in s2), "v2 save migrates: finished regions kept, partial routes/undos/stars reset");
 store[KEY] = mk(3); let s3 = run("load()");
-ok(s3.doneRegions.join() === "uk" && s3.stars.uk === 3 && !("fr" in s3.stars) && s3.seen.num === 1 && s3.partial.jp[0] === "tokyo", "v3 save keeps stars of finished regions only, seen cards and partial routes");
+ok(s3.doneRegions.join() === "uk" && s3.stars.uk === 3 && !("fr" in s3.stars) && s3.seen.num === 1 && s3.partial.jp[0] === "tokyo" && !("hints" in s3) && s3.v === 4, "v3 save migrates to v4: stars of finished regions, seen cards and partial routes kept, hint counts dropped");
+store[KEY] = mk(4); let s4 = run("load()");
+ok(s4.undos.jp === 2 && s4.stars.uk === 3, "v4 save keeps undo counts and stars");
 run("var S0=load();S0.doneRegions.push('fr');S0.stars.fr=2;saveS(S0)");
 ok(run("load()").doneRegions.join() === "uk,fr" && run("load().stars.fr") === 2, "save -> load round-trip keeps progress and stars");
 store[KEY] = "{broken"; ok(run("load()").doneRegions.length === 0, "corrupt save falls back to fresh");
 store[KEY] = JSON.stringify({ v: 99 }); ok(run("load()").doneRegions.length === 0, "unknown version falls back to fresh");
-store[KEY] = JSON.stringify({ v: 3, doneRegions: "x", stars: [], partial: 5 }); { const s = run("load()"); ok(Array.isArray(s.doneRegions) && typeof s.stars === "object" && !Array.isArray(s.stars), "garbled fields are repaired"); }
+store[KEY] = JSON.stringify({ v: 4, doneRegions: "x", stars: [], partial: 5, undos: 7 }); { const s = run("load()"); ok(Array.isArray(s.doneRegions) && typeof s.stars === "object" && !Array.isArray(s.stars) && typeof s.undos === "object", "garbled fields are repaired"); }
 
-const kbEnd = Math.round(Buffer.byteLength(html) / 1024);
-ok(kbEnd < 1500, `single file stays small (${kbEnd} KB)`);
+// ---- stars no longer depend on hints: 0 undos = 3, 1-3 = 2, more = 1
+{ const fn = js.match(/function starsNow\(rid\)\{[^\n]*\}/)[0];
+  const r = u => vm.runInContext("var S={save:{undos:{a:" + u + "}}};" + fn + ";starsNow('a')", sandbox);
+  ok(r(0) === 3 && r(1) === 2 && r(3) === 2 && r(4) === 1 && r(9) === 1, "stars: 0 undos = 3, 1-3 undos = 2, 4+ = 1"); }
+
+// ---- no hints anywhere, one Undo button
+ok(!/hint/i.test(plain), "no 'hint' text, button or code anywhere in index.html");
+ok(!/id="b-restart"|id="b-hint"|b-hint|nextHint/.test(plain), "no Restart or Hint button");
+ok(/id="b-undo"/.test(plain) && /pointerdown/.test(plain) && /600/.test(plain), "Undo button with a 0.6 s long-press handler");
+ok(/Tap <b>Undo<\/b>/.test(plain), "Dead-end message points to Undo");
+
+// ---- fun facts (36) and country images (36)
+const FJ = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "tools", "facts.json"), "utf8"));
+const CI = run("CTRY_IMG");
+ok(regs.every(r => typeof r.fact === "string" && r.fact.length >= 60 && r.fact.length <= 260), "all 36 countries have a fun fact of 60-260 characters");
+ok(regs.every(r => r.fact === FJ[r.id]) && Object.keys(FJ).length === 36, "facts in the game match tools/facts.json (36)");
+ok(new Set(regs.map(r => r.fact)).size === 36, "all 36 facts are different");
+ok(regs.every(r => (r.fact.match(/[.!?](\s|$)/g) || []).length <= 3), "facts are short (at most 3 sentence marks)");
+ok(!/electric ghost|the spark/i.test(regs.map(r => r.fact).join(" ")), "facts do not mention forbidden names");
+let imgBad = [], imgKB = [];
+for (const r of regs) {
+  const u = CI[r.id]; if (!u || !/^data:image\/webp;base64,/.test(u)) { imgBad.push(r.id + ":missing"); continue; }
+  const buf = Buffer.from(u.split(",")[1], "base64"); imgKB.push(buf.length / 1024);
+  const w = buf.readUInt16LE(26) & 0x3fff, h = buf.readUInt16LE(28) & 0x3fff;
+  if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WEBP") imgBad.push(r.id + ":not webp");
+  else if (w !== 480 || h !== 320) imgBad.push(`${r.id}:${w}x${h}`);
+  if (buf.length > 30 * 1024 || buf.length < 8 * 1024) imgBad.push(r.id + ":" + Math.round(buf.length / 1024) + "KB");
+}
+ok(imgBad.length === 0 && Object.keys(CI).length === 36, "36 country images exist as WebP data URLs, 480x320, 8-30 KB each" + (imgBad.length ? " -> " + imgBad.join(" ") : ""));
+console.log(`  country images: ${imgKB.length}, average ${(imgKB.reduce((a, b) => a + b, 0) / imgKB.length).toFixed(1)} KB, max ${Math.max(...imgKB).toFixed(1)} KB, total ${Math.round(imgKB.reduce((a, b) => a + b, 0))} KB`);
+
+// ---- size budget
+const bytesEnd = Buffer.byteLength(html), kbEnd = Math.round(bytesEnd / 1024);
+ok(bytesEnd < 1.8 * 1024 * 1024, `index.html stays under 1.8 MB (${kbEnd} KB = ${(bytesEnd / 1048576).toFixed(2)} MB)`);
+const zipFile = path.join(__dirname, "..", "itch", "glowglobe-html5.zip");
+if (fs.existsSync(zipFile)) { const zb = fs.statSync(zipFile).size; ok(zb < 1.5 * 1024 * 1024, `itch zip stays under 1.5 MB (${Math.round(zb / 1024)} KB)`); }
 console.log(fails ? `\n${fails} CHECK(S) FAILED` : "\nALL CHECKS PASSED");
 process.exit(fails ? 1 : 0);
