@@ -303,5 +303,25 @@ const bytesEnd = Buffer.byteLength(html), kbEnd = Math.round(bytesEnd / 1024);
 ok(bytesEnd < 1.8 * 1024 * 1024, `index.html stays under 1.8 MB (${kbEnd} KB = ${(bytesEnd / 1048576).toFixed(2)} MB)`);
 const zipFile = path.join(__dirname, "..", "itch", "glowglobe-html5.zip");
 if (fs.existsSync(zipFile)) { const zb = fs.statSync(zipFile).size; ok(zb < 1.5 * 1024 * 1024, `itch zip stays under 1.5 MB (${Math.round(zb / 1024)} KB)`); }
+// ---- round 8 (review fixes) ----
+{ const L = html.split("\n"); const R = JSON.parse(L.find(l => l.startsWith("var RINGS = ")).slice(12).replace(/;\s*$/, ""));
+  const DD = JSON.parse(L.find(l => l.startsWith("var DATA = ")).slice(11).replace(/;\s*$/, ""));
+  const inside = (p, r) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if (((r[i][1] > p[1]) !== (r[j][1] > p[1])) && (p[0] < (r[j][0] - r[i][0]) * (p[1] - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0])) c = !c; return c; };
+  const city = (rid, nm) => DD.flatMap(c => c.regions).find(r => r.id === rid).cities.find(x => x.name === nm);
+  ok(R.jm.reduce((a, r) => a + r.length, 0) >= 20 && R.eg.reduce((a, r) => a + r.length, 0) >= 50, "Jamaica and Egypt have real (Natural Earth) outlines, not a box");
+  ok([["eg", "Sharm El Sheikh"], ["eg", "Port Said"], ["jm", "Kingston"], ["jm", "Negril"]].every(([r, n]) => R[r].some(ring => inside([city(r, n).lon, city(r, n).lat], ring))), "Sharm El Sheikh, Port Said, Kingston and Negril sit on land");
+  ok(/neighbor/.test(plain) && !/neighbour/i.test(html.replace(/data:image[^"']+/g, "")), "American spelling: 'neighbor', no 'neighbour'");
+  ok(!/travell|colour|favour|synthesis(e|ing)d?\b/i.test(plain), "no British spellings in the game text (traveling, color, synthesized)");
+  const names = DD.flatMap(c => c.regions).flatMap(r => r.cities.map(x => x.name));
+  ok(names.includes("Mérida") && names.includes("Brasília") && !names.includes("Merida") && !names.includes("Brasilia"), "city names: Mérida and Brasília");
+  ok(/Stefan directed the project, playtested every version and picked the images/.test(html) && /AI \(Grok\)/.test(html) && /AI image generator/.test(html), "in-game AI screen names the tools (Grok, AI image generator) and what the human did");
+  ok(/only control you need while playing/.test(html) && /a restart counts as one undo/.test(html) && !/only button/i.test(plain), "Undo wording: 'only control you need while playing', restart counts as one undo");
+  ok(/not a stop on this map/.test(html) && /function capitalLine/.test(html), "country card does not claim a capital that is not on the map");
+  const itch = fs.readFileSync(path.join(__dirname, "..", "itch", "itch-page.md"), "utf8");
+  ok(/Every country is a logic puzzle with exactly ONE solution, verified by a solver\. Learn a new rule on each continent: number clues, one-way roads, order arrows\. Then combine them in Asia\. Plays on phone and PC, no install\./.test(itch) && !/hand-checked/i.test(itch), "itch pitch is the unified text, no 'hand-checked'");
+  ok(/## How to play/.test(itch) && /Best played in portrait on phones\./.test(itch) && /Progress is saved automatically in your browser\./.test(itch), "itch page has the How to play section and the portrait / auto-save lines");
+  ok(/South America - one-way roads \(plus a few number clues\)/.test(itch) && /Puzzle, Logic, Casual, Relaxing, Singleplayer, Short, Geography, Touch-Friendly, Atmospheric, AI/.test(itch), "itch: South America wording and the 10 tags");
+  ok(/Sound: synthesized in the browser\. Map: \*\*Natural Earth\*\* \(public domain\)/.test(itch) && /03:10/.test(itch) && !/synthesised|favourite|colour/.test(itch), "itch credits line, verified deadline (03:10 Bratislava), American spelling");
+  ok(/screenshots 05, 06, 09, 10, 11/.test(itch), "itch guide recommends screenshots 05, 06, 09, 10, 11"); }
 console.log(fails ? `\n${fails} CHECK(S) FAILED` : "\nALL CHECKS PASSED");
 process.exit(fails ? 1 : 0);

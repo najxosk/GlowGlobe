@@ -503,6 +503,36 @@ with sync_playwright() as p:
     intro_checks(pg, False, 'desktop')
     b.close()
 
+# ---- review fixes: small phone (360x640), resize / rotation while the intro or help is open, capital label
+with sync_playwright() as p:
+    b, ctx, pg = new_page(p, 360, 640, True)
+    for cid, (first, must, mustnot) in INTRO.items():
+        pg.evaluate("S.save=fresh();S.save.tutorial=1;saveS(S.save);S.regId='%s';enterPlay();" % first); pg.wait_for_timeout(350)
+        r = pg.evaluate("()=>{var sc=document.querySelector('#ov-rule .rscroll'),b=document.querySelector('#b-gotit').getBoundingClientRect();return {scroll:sc.scrollHeight>sc.clientHeight+1,btn:b.top>=0&&b.bottom<=innerHeight&&b.right<=innerWidth}}")
+        ok(r['btn'], f'360x640 {cid}: the intro\'s "Let\'s go" button is on screen')
+        ok(not r['scroll'], f'360x640 {cid}: the intro fits without scrolling')
+        if cid in ('north-america', 'asia'): pg.screenshot(path=str(SHOTS / f's-intro-{cid}-360x640.png'))
+        pg.click('#b-gotit'); pg.wait_for_timeout(200)
+    # resize / rotation while the intro is open, then while the help is open
+    pg.evaluate("S.save=fresh();S.save.tutorial=1;saveS(S.save);S.regId='eg';enterPlay();"); pg.wait_for_timeout(300)
+    ok(pg.evaluate("S.screen") == 'rule', 'intro open on Egypt (first Africa level)')
+    x0 = pg.evaluate("S.cities[1].x"); pg.set_viewport_size({'width': 640, 'height': 360}); pg.wait_for_timeout(500)
+    ok(pg.evaluate("W") == 640 and abs(pg.evaluate("S.cities[1].x") - x0) > 1 and pg.evaluate("S.cities.every(function(c){return c.x>=0&&c.x<=W&&c.y>=0&&c.y<=H})"), 'rotating to landscape while the intro is open recomputes the map layout (cities stay on screen)')
+    pg.click('#b-gotit'); pg.wait_for_timeout(200)
+    pg.click('#b-rules'); pg.wait_for_timeout(200)
+    y0 = pg.evaluate("S.cities[1].y"); pg.set_viewport_size({'width': 360, 'height': 640}); pg.wait_for_timeout(500)
+    ok(pg.evaluate("H") == 640 and abs(pg.evaluate("S.cities[1].y") - y0) > 1 and pg.evaluate("S.screen") == 'rule', 'rotating back while the "?" help is open recomputes the layout and keeps the help open')
+    pg.click('#b-gotit'); pg.wait_for_timeout(150)
+    ok(pg.evaluate("S.screen") == 'play' and pg.is_visible('#b-undo'), 'help closes back to the level')
+    # capital label: never claims a capital that is not on the map
+    caps = pg.evaluate("()=>{var o={};DATA.forEach(function(c){c.regions.forEach(function(r){o[r.id]=capitalLine(r);});});return o;}")
+    ok(caps['uk'] == 'Capital: London' and 'not a stop on this map' in caps['ca'] and 'not a stop on this map' in caps['za'] and caps['ke'] == 'Capital: Nairobi', f'capital label: London/Nairobi plain, Canada and South Africa say "not a stop on this map" ({caps["ca"]}; {caps["za"]})')
+    pg.evaluate("S.save.seen['c:north-america']=1;S.regId='ca';enterPlay();"); pg.wait_for_timeout(300)
+    for c2 in pg.evaluate("S.pz.sol")[1:]: tap_city(pg, True, c2)
+    pg.wait_for_selector('#b-next', state='visible', timeout=12000)
+    ok('Capital: Ottawa (not a stop on this map)' in pg.inner_text('#ov-hero'), 'Canada card shows the capital with the "not a stop on this map" note')
+    b.close()
+
 print('\nConsole/page errors:', len(errors))
 for e in errors: print('  ', e)
 ok(len(errors) == 0, 'no console errors or warnings, no failed requests')

@@ -56,8 +56,8 @@ with sync_playwright() as p:
     pg.screenshot(path=str(SH / '15-desktop-country-card-india.png'))
     ctx.close()
     # ---------- gameplay video (mobile): Europe intro, UK, Oceania intro + numbers, Ecuador one-way ----------
-    ctx = b.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True, device_scale_factor=1,
-                        record_video_dir=str(TMP), record_video_size={'width': 390, 'height': 844})
+    ctx = b.new_context(viewport={'width': 480, 'height': 1000}, has_touch=True, is_mobile=True, device_scale_factor=1,
+                        record_video_dir=str(TMP), record_video_size={'width': 480, 'height': 1000})
     pg = ctx.new_page(); pg.goto(URL); pg.wait_for_timeout(1600)
     pg.click('#b-play'); pg.wait_for_timeout(1800); gotit(pg); pg.wait_for_timeout(1200)
     tap_n(pg, 99, wait=650)
@@ -72,7 +72,12 @@ with sync_playwright() as p:
     ctx.close(); b.close()
 
 vid = next(TMP.glob('*.webm')); print('video', vid)
-subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(vid), '-vf', 'fps=8,scale=250:-1:flags=lanczos,palettegen=max_colors=56', str(TMP / 'pal.png')], check=True)
-subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(vid), '-i', str(TMP / 'pal.png'), '-lavfi', 'fps=8,scale=250:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5', str(OUT / 'gameplay.gif')], check=True)
-shutil.copy(vid, OUT / 'gameplay.webm')
+ff = lambda *a: subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', *a], check=True)
+# main video: mp4 (H.264) and a compact webm, both 480x1000
+ff('-i', str(vid), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '27', '-preset', 'slow', '-movflags', '+faststart', '-an', str(OUT / 'gameplay.mp4'))
+ff('-i', str(vid), '-c:v', 'libvpx-vp9', '-crf', '38', '-b:v', '0', '-an', str(OUT / 'gameplay.webm'))
+# smaller GIF, 480 px wide (itch accepts GIFs as screenshots; kept under 3 MB)
+GIF_T = '20'
+ff('-t', GIF_T, '-i', str(vid), '-vf', 'fps=5,scale=480:-1:flags=lanczos,palettegen=max_colors=32', str(TMP / 'pal.png'))
+ff('-t', GIF_T, '-i', str(vid), '-i', str(TMP / 'pal.png'), '-lavfi', 'fps=5,scale=480:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5', str(OUT / 'gameplay.gif'))
 print('ok')
