@@ -7,32 +7,42 @@ Everything below is ready to paste into the itch.io "Edit game" page.
 Glow Globe
 
 ## Short description / tagline (max ~100 chars)
-Light every city, once, along the roads - and make the whole Earth glow.
+A logic puzzle on the night-time map: one start, one goal, one perfect route through every city.
 
 ## Pitch (1-2 lines for the jam entry)
-A calm, one-file map puzzle: tap your way through every city of a country without visiting any twice. Finish a country, light a continent, glow the globe. Works on phones and PC, no install.
+Every country is a hand-checked logic puzzle with exactly ONE solution. Learn a new rule on each continent - number clues, one-way roads, locked gates, fragile bridges - then combine them all in Asia. Phones and PC, one file, no install.
 
 ## Description (paste into the page body)
-**Glow Globe** is a small, cozy route puzzle on a dark night-time map of the world.
+**Glow Globe** is a logic puzzle on a dark night-time map of the world.
 
-Every country is a little puzzle: the cities are connected by dashed roads, and you have to visit **every city exactly once**. Pick a start city, follow the roads, and watch your gold trail light the country up. Take a wrong turn? Undo, or ask for a hint (3 per level).
+Every country is a puzzle: light **every city exactly once**, start at the glowing **power plant** and finish at the **star city**. There is **exactly one** correct route, and every level was verified by a solver. No guessing needed - you can work it out by deduction. Each continent adds one new rule and keeps the old ones:
+
+1. **Europe - start, goal, one route.** The basics: only one route works.
+2. **Oceania - number clues.** A number on a city is its place in your route. A city marked 3 must be the 3rd you light.
+3. **South America - one-way roads.** Arrows show the only direction you may travel.
+4. **Africa - locked gates.** A coloured road is closed until you light the city with the matching key.
+5. **North America - fragile bridges and order arrows.** Dashed bridges collapse: the moment you cross one, ALL dashed bridges collapse - use at most one. A purple arrow A -> B means light A before B.
+6. **Asia - everything at once.** The hardest puzzles, mixing all rules.
+
+Stuck? A clear **Dead end!** message shakes the screen and Undo pulses. Ask for a **Hint** (it shows the next correct city and costs a star). Earn up to **3 stars per level**: no hints = 3 stars, one hint = 2, more = 1. Replay any level for the full 3.
 
 Finish all the countries of a continent and the whole continent glows - with a picture of it lit up at night and a silly fact. Light all six continents and the entire Earth shines.
 
 **Features**
-- 6 continents, 36 countries and regions, 219 cities
-- Levels get harder as you go: Europe is a gentle warm-up, Asia ends with tight 8-city routes. Every level is checked with a solver, so each one can be solved
+- 6 continents, 36 levels (6 / 7 / 6 / 6 / 5 / 6), 6-10 cities each, difficulty rising inside every continent
+- Every level has exactly one solution (checked by two independent solvers in the test suite)
+- Rule cards with a tiny example before each new rule, and a "?" button to read the rules again
+- Stars, a Glow Atlas, automatic saving (close the tab and continue later)
 - Satisfying light-up effects, a light wave over your route and a bloom when a country is finished
-- Glow Atlas to see how much of the Earth you have lit
-- Automatic saving - close the tab and continue later
 - Plays great on phones (big touch targets, nearest-city tapping) and on desktop
 - One small file, works offline, no ads, no account
 
 ## Controls
-- **Tap / click a city** to start, then tap a glowing neighbour at the end of your gold trail
-- **Undo** - step back one city
+- **Tap / click a city** that is connected to the end of your gold trail (legal moves glow; the power plant is already lit)
+- **Undo** - step back one city (it pulses when you are in a dead end)
 - **Restart** - clear the country and start over
-- **Hint** - shows a correct next city (3 per country)
+- **Hint** - shows the next correct city and costs a star (3 per level)
+- **?** - the rules of this level
 - **Menu** - continents, Glow Atlas, sound, credits
 
 ## How AI was used
@@ -42,7 +52,7 @@ This game was made for **Super Free AI Game Jam #2** and AI is part of every lay
 - **Art:** the six continent pictures (glowing night-lights over each continent) were generated with an AI image generator and compressed to ~50 KB each.
 - **Text:** the country facts and the silly continent lines were written with AI help.
 - **Sound:** not AI-generated and not sampled - every note is synthesised live in the browser with Web Audio.
-- **Level checks:** an automated solver verifies that every country can be completed.
+- **Puzzle design:** a generator and an exhaustive solver built every level so that it has exactly ONE solution and every rule is respected; the roads and clues were pruned until the puzzle was unique.
 The same text is available in the game under Menu -> "How AI made this".
 
 ## Credits
@@ -66,10 +76,10 @@ Puzzle, Casual, Relaxing, Singleplayer, Short, Touch, Map, Geography, Cute, Mobi
 ## Files in this kit
 | File | Use |
 |---|---|
-| `glowglobe-html5.zip` | the upload (contains `index.html` only: ~583 KB unpacked, ~380 KB zipped) |
+| `glowglobe-html5.zip` | the upload (contains `index.html` only: ~630 KB unpacked, ~400 KB zipped) |
 | `cover.png` | cover image, 630x500 |
-| `screenshots/01-mobile-menu.png` ... `06-desktop-china.png` | 6 screenshots (4 mobile 390x844 @2x, 2 desktop 1280x720); itch shows 3-5 well, pick your favourites |
-| `gameplay.gif` | ~22 s gameplay GIF, 300 px wide (UK -> Portugal -> Europe glows). Use as a screenshot/GIF on the page |
+| `screenshots/01-mobile-menu.png` ... `12-desktop-india.png` | 12 screenshots: 10 mobile (390x844 @2x: menu, rule cards, number clues, one-way roads, gates, fragile bridges, dead end, Asia with all rules, continent glow) and 2 desktop (1280x720). itch shows 3-5 well, pick your favourites (suggested: 04, 05, 06, 09, 10) |
+| `gameplay.gif` | ~30 s gameplay GIF, 270 px wide (rule card -> UK -> Tasmania number clues -> Ecuador one-way roads) |
 | `gameplay.webm` | the same recording as video (can be uploaded to YouTube and linked in "Add a video") |
 
 ## Upload steps (HTML5 game on itch.io)
