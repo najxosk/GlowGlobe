@@ -2,7 +2,7 @@
 Usage:  python3 tests/e2e.py            (writes screenshots to tests/shots/)
 Solves the first two levels of EVERY continent with real taps/clicks at 390x844 (touch) and 1280x720 (mouse),
 and checks rule cards, illegal-move messages, dead end + Undo (the only control; long-press = restart),
-undo-based stars, the country-complete card (AI image + fun fact), persistence, v2/v3-save migration, label overlap / tap precision, button sizes and a clean console."""
+undo-based stars, the country-complete card (AI image + fun fact), persistence, v1/v2/v3-save migration, the continent-message / Next-button regressions (fresh + old saves), label overlap / tap precision, button sizes and a clean console."""
 import sys, json, pathlib
 from playwright.sync_api import sync_playwright
 
@@ -120,6 +120,100 @@ def geometry_checks(pg, label):
     print(f'  {label}: min city distance {min(r["minD"] for r in res)}px, hidden labels {hidden}')
     ok(not bad, f'{label}: no overlapping labels / tap misses / off-screen labels in all 36 levels' + ('' if not bad else ' -> ' + json.dumps(bad)))
     ok(hidden <= 3, f'{label}: at most 3 labels hidden in total (hidden={hidden})')
+
+def set_save(pg, obj):
+    pg.evaluate("(o)=>localStorage.setItem('glow-globe-v1',JSON.stringify(o))", obj); pg.reload(); pg.wait_for_timeout(300)
+
+def play_current(pg, touch):
+    """solve the level that is open right now with real taps; returns its id"""
+    if pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')"): pg.click('#b-gotit'); pg.wait_for_timeout(150)
+    rid = pg.evaluate("S.regId"); sol = pg.evaluate("S.pz.sol")
+    for c2 in sol[1:]: tap_city(pg, touch, c2)
+    pg.wait_for_selector('#b-next', state='visible', timeout=6000)
+    return rid
+
+def hero_text(pg):
+    """the text of the overlay WITHOUT the 'Continent is alight!' button label, so 'is alight' only means the continent message"""
+    return pg.evaluate("Array.from(document.querySelectorAll('#ov-hero .card > *:not(button)')).map(e=>e.innerText).join('\\n')")
+
+def regression_checks(pg, touch, label):
+    """Stefan's playtest bugs: (1) 'Europe is alight' after EVERY country, (2) Next jumped to another continent."""
+    EU = ['uk', 'pt', 'fr', 'it', 'de', 'es']
+    base = {'v': 4, 'sound': True, 'tutorial': 1, 'undos': {}, 'stars': {}, 'seen': {'basic': 1}, 'currentContinent': 'europe', 'currentRegion': 'uk', 'partial': {}, 'doneRegions': [], 'doneContinents': []}
+    # ---- A) fresh save: play ALL of Europe through the Next button
+    set_save(pg, base)
+    pg.click('button[id="b-con:europe"]'); pg.wait_for_timeout(150)
+    pg.click('.regcell[data-id="uk"]'); pg.wait_for_timeout(250)
+    alight = 0
+    for i, rid in enumerate(EU):
+        ok(pg.evaluate("S.regId") == rid and pg.evaluate("S.contId") == 'europe', f'{label} fresh: level {i+1} is {rid} in Europe')
+        play_current(pg, touch)
+        txt = hero_text(pg); last = i == len(EU) - 1
+        has_alight = 'is alight' in txt
+        alight += 1 if has_alight else 0
+        if not last:
+            ok(not has_alight and not pg.is_visible('#b-nextc'), f'{label} fresh: after {rid} NO continent message')
+            ok(pg.inner_text('#b-next') == 'Next country', f'{label} fresh: after {rid} the button says "Next country"')
+            ok(pg.evaluate("S.save.doneContinents.length") == 0, f'{label} fresh: continent not marked done after {rid}')
+            pg.click('#b-next'); pg.wait_for_timeout(300)
+            ok(pg.evaluate("S.contId") == 'europe' and pg.evaluate("S.regId") == EU[i + 1] and pg.evaluate("S.screen") in ('play', 'rule'), f'{label} fresh: Next after {rid} -> {EU[i+1]} (still Europe, playing)')
+        else:
+            ok(pg.inner_text('#b-next') == 'Continent is alight!', f'{label} fresh: last country {rid} -> button "Continent is alight!"')
+            ok(not has_alight, f'{label} fresh: the country card itself is not the continent message')
+            alight += 0
+            pg.click('#b-next'); pg.wait_for_timeout(300)
+            ok(pg.is_visible('#b-nextc') and 'Europe is alight!' in hero_text(pg), f'{label} fresh: continent message after the LAST country, exactly then')
+            alight += 1
+            ok(pg.evaluate("S.save.doneContinents.join()") == 'europe', f'{label} fresh: Europe marked done only now')
+            ok('Eurasia' in hero_text(pg), f'{label} fresh: new Europe text is shown')
+            pg.screenshot(path=str(SHOTS / f'{"m" if touch else "d"}-14-europe-done.png'))
+    ok(alight == 1, f'{label} fresh: continent message appeared exactly once (count {alight})')
+    pg.click('#b-nextc'); pg.wait_for_timeout(250)
+    ok(pg.evaluate("S.screen") == 'cont' and pg.evaluate("S.contId") == 'oceania', f'{label} fresh: after Europe the next continent is Oceania')
+    pg.click('#ov-cont #b-close'); pg.wait_for_timeout(150)
+    # replaying a finished Europe country: no continent message, Back goes to the country list
+    pg.click('button[id="b-con:europe"]'); pg.wait_for_timeout(150); pg.click('.regcell[data-id="uk"]'); pg.wait_for_timeout(250)
+    play_current(pg, touch)
+    ok('is alight' not in hero_text(pg) and pg.inner_text('#b-next') == 'Back to the countries', f'{label} replay of a finished continent: no continent message')
+    pg.click('#b-next'); pg.wait_for_timeout(250)
+    ok(pg.evaluate("S.screen") == 'cont' and pg.evaluate("S.contId") == 'europe', f'{label} replay: Back shows the Europe country list')
+
+    # ---- B) old saves already in the browser
+    old_eu = {'sound': True, 'tutorial': 1, 'currentContinent': 'europe', 'currentRegion': 'uk', 'partial': {}, 'doneRegions': EU[:], 'doneContinents': ['europe']}
+    for v, extra in ((1, {}), (2, {'hints': {'uk': 1}})):
+        set_save(pg, dict(old_eu, v=v, **extra))
+        ok(pg.evaluate("S.save.doneRegions.length") == 0 and pg.evaluate("S.save.v") == 4, f'{label} v{v} save with all of Europe done -> clean start')
+        pg.click('#b-play') if pg.evaluate("document.querySelector('#b-play')") else None
+        pg.wait_for_timeout(300)
+        ok(pg.evaluate("S.regId") == 'uk' and pg.evaluate("S.contId") == 'europe', f'{label} v{v} save: Play starts at the United Kingdom (not another continent)')
+        play_current(pg, touch)
+        ok('is alight' not in hero_text(pg) and pg.inner_text('#b-next') == 'Next country', f'{label} v{v} save: first country -> no continent message')
+        pg.click('#b-next'); pg.wait_for_timeout(300)
+        ok(pg.evaluate("S.contId") == 'europe' and pg.evaluate("S.regId") == 'pt', f'{label} v{v} save: Next -> Portugal (same continent)')
+    for v in (3, 4):
+        # whole Europe done in a v3/v4 save: continent stays done, replays never re-announce it
+        sv = dict(old_eu, v=v, stars={r: 3 for r in EU}, seen={'basic': 1}, undos={})
+        set_save(pg, sv)
+        ok(pg.evaluate("S.save.doneContinents.join()") == 'europe', f'{label} v{v} save: finished Europe stays finished')
+        pg.click('button[id="b-con:europe"]'); pg.wait_for_timeout(150); pg.click('.regcell[data-id="fr"]'); pg.wait_for_timeout(250)
+        play_current(pg, touch)
+        ok('is alight' not in hero_text(pg) and not pg.is_visible('#b-nextc'), f'{label} v{v} save: replaying France does not show the continent message')
+        pg.click('#b-next'); pg.wait_for_timeout(250)
+        ok(pg.evaluate("S.screen") == 'cont' and pg.evaluate("S.contId") == 'europe', f'{label} v{v} save: Next after a replay stays in Europe (country list)')
+        # Continue goes to the first open country of the next continent only because Europe is really finished
+        pg.click('#ov-cont #b-close'); pg.wait_for_timeout(150); pg.click('#b-play'); pg.wait_for_timeout(300)
+        ok(pg.evaluate("S.contId") == 'oceania', f'{label} v{v} save: Continue -> Oceania (Europe really is finished)')
+    # v3 save with 1 country done, currently in Portugal -> Continue stays in Europe
+    set_save(pg, {'v': 3, 'sound': True, 'tutorial': 1, 'hints': {}, 'stars': {'uk': 2}, 'seen': {'basic': 1}, 'currentContinent': 'europe', 'currentRegion': 'pt', 'partial': {}, 'doneRegions': ['uk'], 'doneContinents': []})
+    pg.click('#b-play'); pg.wait_for_timeout(300)
+    ok(pg.evaluate("S.regId") == 'pt' and pg.evaluate("S.save.stars.uk") == 2, f'{label} v3 save (UK done): Continue -> Portugal, UK stars kept')
+    play_current(pg, touch)
+    ok('is alight' not in hero_text(pg), f'{label} v3 save: Portugal done -> no continent message')
+    pg.click('#b-next'); pg.wait_for_timeout(300)
+    ok(pg.evaluate("S.regId") == 'fr' and pg.evaluate("S.contId") == 'europe', f'{label} v3 save: Next -> France')
+    # back to a clean slate
+    set_save(pg, base)
+
 
 CONTS = ['europe', 'oceania', 'south-america', 'africa', 'north-america', 'asia']
 
@@ -283,7 +377,7 @@ with sync_playwright() as p:
     # ---- migration: v2 save keeps finished regions, drops stars / partial routes
     pg.evaluate("localStorage.setItem('glow-globe-v1',JSON.stringify({v:2,sound:true,tutorial:1,hints:{uk:2},currentContinent:'africa',currentRegion:'ke',partial:{ke:['nairobi','mombasa']},doneRegions:['uk','fr'],doneContinents:[]}))")
     pg.reload(); pg.wait_for_timeout(250)
-    ok(pg.evaluate("S.save.doneRegions.join()") == 'uk,fr' and pg.evaluate("Object.keys(S.save.partial).length") == 0 and pg.evaluate("S.save.v") == 4, 'v2 save migrates safely (finished regions kept, partial routes reset)')
+    ok(pg.evaluate("S.save.doneRegions.length") == 0 and pg.evaluate("Object.keys(S.save.partial).length") == 0 and pg.evaluate("S.save.v") == 4, 'v2 save migrates safely (old connect-the-dots progress is not carried over)')
     pg.click('#b-play'); pg.wait_for_timeout(250)
     ok(pg.evaluate("S.screen") in ('play', 'rule'), 'game starts normally from a migrated save')
     # v3 save (hint era): finished regions + stars kept, hint counts dropped
@@ -292,6 +386,7 @@ with sync_playwright() as p:
     ok(pg.evaluate("S.save.stars.uk") == 2 and pg.evaluate("'hints' in S.save") is False and pg.evaluate("S.save.v") == 4, 'v3 save migrates: stars kept, hint counts dropped')
     pg.evaluate("localStorage.setItem('glow-globe-v1','{broken')"); pg.reload(); pg.wait_for_timeout(200)
     ok(pg.evaluate("S.save.doneRegions.length") == 0, 'corrupt save falls back to a fresh game')
+    regression_checks(pg, True, 'mobile')
     b.close()
 
     # ================= desktop 1280x720 (mouse) =================
@@ -313,6 +408,7 @@ with sync_playwright() as p:
     ok(pg.evaluate("S.save.doneRegions.length") >= 12, f'desktop: 12 levels persisted after reload ({pg.evaluate("S.save.doneRegions.length")})')
     ok(pg.evaluate("Object.keys(S.save.stars).length") >= 12, 'desktop: stars persisted after reload')
     pg.evaluate("S.save.seen.mix=1;S.regId='in';enterPlay();"); pg.wait_for_timeout(300); pg.screenshot(path=str(SHOTS / 'd-09-india-hardest.png'))
+    regression_checks(pg, False, 'desktop')
     b.close()
 
 print('\nConsole/page errors:', len(errors))

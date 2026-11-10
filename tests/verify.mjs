@@ -53,6 +53,46 @@ ok(D.every(c => run("FUNNY")[c.id] && run("CONT_EDU")[c.id]), "continent blurbs 
 const RT = run("RULE_TXT");
 ok(["basic", "num", "one", "gate", "frag", "ord", "mix"].every(k => RT[k] && RT[k][0] && RT[k][1].length > 20), "rule card texts for start/goal, numbers, one-way, gates, fragile, order, mix");
 
+// ---- REGRESSION: continent message only when the LAST country of the continent is finished; Next stays in the continent
+{
+  const cc = js.slice(js.indexOf("function completeRegion"), js.indexOf("function undoCity"));
+  ok(/wasAll=contR\.every\(isDone\)/.test(cc) && /var cd=nowAll&&!wasAll/.test(cc) && /var wd=cd&&/.test(cc), "completeRegion: continent/world flags are true only if this level finished the continent (wasAll before, nowAll after)");
+  const heroCalls = (js.match(/enterContinentHero\(/g) || []).length;
+  ok(heroCalls === 2, "enterContinentHero is defined once and called from exactly one place (nextFromCard, behind the cd flag) - got " + heroCalls);
+  const nf = js.slice(js.indexOf("function nextFromCard"), js.indexOf("var FUNNY="));
+  ok(/if\(c\.cd\)\{enterContinentHero/.test(nf) && /if\(c\.nx\)\{/.test(nf) && !/regions\[i\+1\]/.test(nf), "nextFromCard: hero only for cd; otherwise the next unfinished country of the same continent or the country list");
+  ok(/function nextOpenIn\(cont,rid\)/.test(js), "nextOpenIn(): next unfinished country in the same continent");
+}
+vm.runInContext(js.slice(js.indexOf("function nextOpenIn"), js.indexOf("function regionCard")), sandbox);
+vm.runInContext(js.slice(js.indexOf("function firstOpenRegion"), js.indexOf("function enterTitle")), sandbox);
+{ // simulate the Next-button logic with the real functions on a fake save
+  run("S={save:fresh()};");
+  const eu = D[0].regions.map(r => r.id);
+  run("S.contId='europe';");
+  for (let k = 0; k < eu.length; k++) {
+    run(`S.save.doneRegions.push('${eu[k]}')`);
+  }
+  run("S.save=fresh();");
+  const order = [];
+  for (let k = 0; k < eu.length; k++) { run(`S.save.doneRegions.push('${eu[k]}')`); order.push(run(`nextOpenIn(findContinent('europe'),'${eu[k]}')`)); }
+  ok(order.slice(0, 5).join() === eu.slice(1).join() && order[5] === null, "Next goes uk -> pt -> fr -> it -> de -> es within Europe; after the last country there is nothing left (-> continent message)");
+  // replaying UK when Europe is already finished: next unfinished = none (no continent message)
+  ok(run("nextOpenIn(findContinent('europe'),'uk')") === null, "replaying a country of a finished continent: no 'next' (goes back to the list)");
+  // replay UK with only UK+PT+FR done -> next is IT (skips finished ones)
+  run("S.save=fresh();S.save.doneRegions=['uk','pt','fr'];");
+  ok(run("nextOpenIn(findContinent('europe'),'uk')") === "it", "replaying a country: next = the first unfinished country of the same continent");
+}
+// v3/v4 saves with the whole of Europe done must keep Europe done but never auto-jump while a country is being replayed
+store[run("SAVE_KEY")] = JSON.stringify({ v: 4, sound: true, tutorial: 1, undos: {}, stars: {}, seen: {}, currentContinent: "europe", currentRegion: "uk", partial: {}, doneRegions: ["uk", "pt", "fr", "it", "de", "es"], doneContinents: ["europe"] });
+ok(run("load().doneContinents.join()") === "europe" && run("load().doneRegions.length") === 6, "v4 save with finished Europe stays finished");
+// continent texts
+for (const c of D) {
+  const t = [c.blurb, run("FUNNY")[c.id], run("CONT_EDU")[c.id]];
+  ok(t.every(x => x && x.length > 40 || x === run("FUNNY")[c.id]) && !/lit first|lights the way|billion lights|bright north|heart of light|light that dances/i.test(t.join(" ")) && run("CONT_EDU")[c.id].length > 90, `continent text for ${c.id} is a real fact (not the old filler)`);
+}
+ok(/Eurasia/.test(run("CONT_EDU").europe) && /Ural/.test(run("CONT_EDU").europe), "Europe text: Eurasia / Ural border fact");
+ok(!/\bnx\.id\b/.test(js.slice(js.indexOf("function nextFromCard"), js.indexOf("var FUNNY="))), "no stale 'nx.id' code in nextFromCard");
+
 // ---- an INDEPENDENT solver, written straight from the rule text (does not use puzSolve / puzCheck)
 function routeValid(pz, route) {
   const n = pz.c.length;
@@ -167,14 +207,17 @@ ok(engineWalk, "puzCheck accepts every step of every stored solution");
   ok(vm.runInContext("puzCheck", sandbox)(z4, ["a"], st4.vis, st4.broken, "b") === "order:c", "rules unit: order rule blocks a city until its predecessor is lit");
 }
 
-// ---- save / load (v1-v3 old, v4 current; older saves keep finished regions, stars of v3 are kept, v1/v2 stars reset)
+// ---- save / load (v1/v2 old saves start clean, v3 saves keep progress and stars, v4 current)
 const KEY = run("SAVE_KEY");
 const mk = v => JSON.stringify({ v, sound: false, tutorial: 1, hints: { uk: 1 }, undos: { jp: 2 }, stars: { uk: 3, fr: 2 }, seen: { num: 1 }, currentContinent: "asia", currentRegion: "jp", partial: { jp: ["tokyo"] }, doneRegions: ["uk", "nope"], doneContinents: [] });
 ok(run("fresh().v") === 4 && run("'hints' in fresh()") === false && run("typeof fresh().undos") === "object", "fresh save is v4, has undo counts and no hints");
 store[KEY] = mk(1); let s1 = run("load()");
-ok(s1.doneRegions.join() === "uk" && s1.currentRegion === "jp" && s1.sound === false, "load() accepts a v1 save (and drops unknown ids)");
+ok(s1.doneRegions.length === 0 && s1.currentRegion === "uk" && s1.sound === false && s1.v === 4, "v1 save (connect-the-dots era) -> clean v4 start, sound setting kept (nothing counts as finished)");
 store[KEY] = mk(2); let s2 = run("load()");
-ok(s2.doneRegions.join() === "uk" && Object.keys(s2.partial).length === 0 && Object.keys(s2.stars).length === 0 && Object.keys(s2.undos).length === 0 && !("hints" in s2), "v2 save migrates: finished regions kept, partial routes/undos/stars reset");
+ok(s2.doneRegions.length === 0 && s2.doneContinents.length === 0 && Object.keys(s2.partial).length === 0 && Object.keys(s2.stars).length === 0 && !("hints" in s2), "v2 save -> clean v4 start (a v2 'finished Europe' must never make the new puzzle levels look finished)");
+store[KEY] = JSON.stringify({ v: 2, sound: true, tutorial: 1, hints: {}, currentContinent: "europe", currentRegion: "uk", partial: {}, doneRegions: ["uk", "pt", "fr", "it", "de", "es"], doneContinents: ["europe"] });
+let s2e = run("S={save:load()};S.save");
+ok(s2e.doneRegions.length === 0 && s2e.doneContinents.length === 0 && s2e.currentRegion === "uk" && run("resumeRegion()") === "uk", "REGRESSION: old v2 save with all of Europe 'done' -> Europe starts again at the United Kingdom (no jump to Oceania)");
 store[KEY] = mk(3); let s3 = run("load()");
 ok(s3.doneRegions.join() === "uk" && s3.stars.uk === 3 && !("fr" in s3.stars) && s3.seen.num === 1 && s3.partial.jp[0] === "tokyo" && !("hints" in s3) && s3.v === 4, "v3 save migrates to v4: stars of finished regions, seen cards and partial routes kept, hint counts dropped");
 store[KEY] = mk(4); let s4 = run("load()");
