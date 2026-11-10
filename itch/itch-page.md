@@ -15,21 +15,21 @@ Every country is a hand-checked logic puzzle with exactly ONE solution. Learn a 
 ## Description (paste into the page body)
 **Glow Globe** is a logic puzzle on a dark night-time map of the world.
 
-Every country is a puzzle: light **every city exactly once**, start at the glowing **power plant** and finish at the **star city**. There is **exactly one** correct route, and every level was verified by a solver. No guessing needed - you can work it out by deduction. Each continent adds one new rule and keeps the old ones:
+Every country is a puzzle: light **every city exactly once**, start at the glowing **power plant** and finish at the **star city**. There is **exactly one** correct route, and every level was verified by a solver. No guessing needed - you can work it out by deduction. Each continent adds one new rule, taught gently on small levels first. Later levels mix at most two rules before Asia:
 
 1. **Europe - start, goal, one route.** The basics: only one route works.
 2. **Oceania - number clues.** A number on a city is its place in your route. A city marked 3 must be the 3rd you light.
 3. **South America - one-way roads.** Arrows show the only direction you may travel.
 4. **Africa - locked gates.** A coloured road is closed until you light the city with the matching key.
 5. **North America - fragile bridges and order arrows.** Dashed bridges collapse: the moment you cross one, ALL dashed bridges collapse - use at most one. A purple arrow A -> B means light A before B.
-6. **Asia - everything at once.** The hardest puzzles, mixing all rules.
+6. **Asia - rules mixed.** Two rules per level at first, three at the end - the hardest puzzles, still one solution each.
 
 Stuck? A clear **Dead end!** message shakes the screen and the **Undo** button pulses. Undo is the only control you need: tap it to step back one city, hold it for a moment to restart the level. Earn up to **3 stars per level**: solved with no undo = 3 stars, 1-3 undos = 2, more = 1. Replay any level for the full 3.
 
 Finish a country and it glows with **its own AI-made night scene** - Big Ben, the Taj Mahal, Machu Picchu, the Pyramids and 32 more - plus a **fun fact** that is true and a little silly. Finish all the countries of a continent and the whole continent glows. Light all six continents and the entire Earth shines.
 
 **Features**
-- 6 continents, 36 levels (6 / 7 / 6 / 6 / 5 / 6), 6-10 cities each, difficulty rising inside every continent
+- 6 continents, 36 levels (6 / 7 / 6 / 6 / 5 / 6), 6-9 cities each, a gentle start for every new rule and difficulty rising inside every continent
 - Every level has exactly one solution (checked by two independent solvers in the test suite)
 - Rule cards with a tiny example before each new rule, and a "?" button to read the rules again
 - 36 AI-generated country scenes (one per level, shown when you finish a country, plus thumbnails in the list) and 36 fun facts

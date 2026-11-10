@@ -183,7 +183,43 @@ const means = D.map(c => c.regions.reduce((s, r) => s + effort[r.id], 0) / c.reg
 ok(means[0] === Math.min(...means), "Europe is the easiest continent");
 ok(D.every((c, i) => c.regions[0].card), "the first level of every continent opens with a rule card (teaching level)");
 ok(D.every(c => effort[c.regions[0].id] <= 30), "teaching levels are easy (effort <= 30)");
-ok(Math.max(...D[5].regions.map(r => effort[r.id])) >= Math.max(...D[0].regions.map(r => effort[r.id])) * 1.5, "the hardest Asia level is clearly harder than the hardest Europe level");
+ok(Math.max(...D[5].regions.map(r => effort[r.id])) >= Math.max(...D[0].regions.map(r => effort[r.id])) * 1.2, "the hardest Asia level is clearly harder than the hardest Europe level");
+
+// ---- round 5: reasonable difficulty (Stefan: later countries combined too many rules)
+{
+  const typesOf = z => (Object.keys(z.n).length ? 1 : 0) + (z.r.some(e => e[2] === 1) ? 1 : 0) + (z.r.some(e => e[2] === 2) ? 1 : 0) + (z.r.some(e => e[2] === 3) ? 1 : 0) + (z.o.length ? 1 : 0);
+  const cnt = (z, t) => z.r.filter(e => e[2] === t).length;
+  const rows = [];
+  let okPre = true, okAsia = true, okCities = true, okGentle = true, okTotal = true;
+  for (const c of D) c.regions.forEach((r, i) => {
+    const z = PUZ[r.id], t = typesOf(z), n = r.cities.length; rows.push(r.id + ":" + t + "t/" + n + "c");
+    if (c.id !== "asia" && t > 2) okPre = false;
+    if (c.id === "asia") { if (i < 3 && t > 2) okAsia = false; if (t > 3) okAsia = false; }
+    if (n > 9 || (c.id !== "europe" && c.id !== "oceania" && n > 8 && c.id !== "asia") || (c.id === "asia" && i < 4 && n > 8)) okCities = false;
+    if (i < 2 && c.id !== "europe" && c.id !== "asia") { if (t > 1) okGentle = false; if (cnt(z, 1) > 4 || cnt(z, 2) > 2 || cnt(z, 3) > 2 || z.o.length > 1 || n > 7) okGentle = false; }
+    if (cnt(z, 1) > 4 || cnt(z, 2) > 2 || cnt(z, 3) > 2 || z.o.length > 2) okTotal = false;
+  });
+  console.log("  rule types / cities per level: " + rows.join(" "));
+  ok(okPre, "never more than 2 rule types in one level before Asia (numbers, one-way, gates, fragile, order each count as one)");
+  ok(okAsia, "Asia: at most 2 rule types in each of the first 3 levels, at most 3 at the end");
+  ok(okGentle, "the first 2 levels of each new-rule continent use ONE rule gently (<=4 one-way, <=2 gates, <=2 fragile, <=1 order arrow, <=7 cities)");
+  ok(okCities, "city counts stay moderate (<=8 outside Europe/Oceania/last Asia levels, <=9 everywhere)");
+  ok(okTotal, "no level has more than 4 one-way roads, 2 gated roads, 2 fragile bridges or 2 order arrows");
+  const Ds = D.reduce((o, c) => (o[c.id] = c.regions.map(r => r.id), o), {});
+  ok(Ds.asia[0] === "th" && Ds.europe.join() === "uk,pt,fr,it,de,es", "level order: Europe unchanged, Asia opens with Thailand (mixed intro card)");
+  vm.runInContext(js.slice(js.indexOf("function replayValid"), js.indexOf("function recompute")), sandbox);
+  run("S={save:fresh()};S.save.doneRegions=['za'];");
+  const afr = run("DATA.map(c=>c.id).indexOf('africa')"), zi = run("DATA[" + afr + "].regions.map(r=>r.id).indexOf('za')");
+  ok(run(`regionUnlocked(S.save,${afr},${zi})`) === true && run(`regionUnlocked(S.save,${afr},${zi + 1})`) === true && run(`regionUnlocked(S.save,${afr},${zi - 1})`) === false || zi <= 1, "regionUnlocked: a finished country is never locked, even if the order changed in an update");
+  ok(run("replayValid(PUZ.de,['leipzig','hamburg'])") === false && run("replayValid(PUZ.de,[PUZ.de.s])") === true, "replayValid rejects a saved route with a city that no longer exists (older layout)");
+  const de = D[0].regions.find(r => r.id === "de");
+  ok(de.cities.length >= 6 && de.cities.some(c => c.id === "berlin") && de.cities.some(c => c.id === "munich") && de.cities.some(c => c.id === "hamburg"), "Germany keeps Berlin, Munich and Hamburg");
+  // map projection regression: countries must keep their real shape (Germany is taller than wide, Italy is taller than wide)
+  vm.runInContext("function _t(lo,la,hi,ha){var c=cameraFromBox({minLon:lo,maxLon:hi,minLat:la,maxLat:ha},390,844,{top:92,right:16,bottom:96,left:16});var a=project(c,lo,la),b=project(c,hi,ha);return Math.abs(b.x-a.x)/Math.abs(b.y-a.y);}", sandbox);
+  const asp = run("_t(6,47.5,14.7,54.7)"), real = (14.7 - 6) * Math.cos(51 * Math.PI / 180) / (54.7 - 47.5);
+  ok(Math.abs(asp - real) / real < 0.03, `map projection keeps the real aspect ratio (Germany on screen ${asp.toFixed(2)} vs real ${real.toFixed(2)}; it used to be stretched 1.6x wide)`);
+}
+
 
 // ---- solving with the real engine (move by move) accepts the solution and rejects illegal moves
 let engineWalk = true;

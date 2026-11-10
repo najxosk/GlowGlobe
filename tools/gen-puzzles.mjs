@@ -51,25 +51,31 @@ const ADD = {
 // ---- level plan: order inside each continent = difficulty order. t = target search effort.
 // f: num = max clues, one = one-way roads, gate = number of keys/gates, frag = fragile bridges, ord = max order arrows
 const PLAN = {
+  // Difficulty design (round 5): the first 1-2 levels of a new rule use ONE small instance (see cap), at most 2 rule TYPES per level
+  // before Asia (numbers, one-way, gates, fragile, order arrows each count as one type), Asia: 2 types in the first half, 3 at the end.
+  // max = max cities (extra cities are dropped), cap = max number of roads of that kind (1 one-way, 2 gate, 3 fragile), t = target effort.
   europe: [
-    { id: 'uk', t: 8, card: 'basic', f: {} }, { id: 'pt', t: 14, f: {} }, { id: 'fr', t: 22, f: {} },
-    { id: 'it', t: 32, f: {} }, { id: 'de', t: 46, f: {} }, { id: 'es', t: 62, f: {} }],
+    { id: 'uk', t: 8, max: 6, card: 'basic', f: {} }, { id: 'pt', t: 12, max: 6, f: {} }, { id: 'fr', t: 18, max: 7, f: {} },
+    { id: 'it', t: 26, max: 7, f: {} }, { id: 'de', t: 34, max: 7, f: {} }, { id: 'es', t: 44, max: 8, f: {} }],
   oceania: [
-    { id: 'tas', t: 10, card: 'num', f: { num: 2 }, slack: 1 }, { id: 'wa', t: 16, f: { num: 2 }, slack: 1 }, { id: 'sa', t: 24, f: { num: 3 } },
-    { id: 'vic', t: 34, f: { num: 3 } }, { id: 'qld', t: 46, f: { num: 3 } }, { id: 'nz', t: 62, f: { num: 4 } }, { id: 'nsw', t: 80, f: { num: 4 } }],
+    { id: 'tas', t: 10, max: 6, card: 'num', f: { num: 1 } }, { id: 'wa', t: 15, max: 6, f: { num: 2 }, slack: 1 }, { id: 'sa', t: 22, max: 6, f: { num: 2 } },
+    { id: 'vic', t: 30, max: 7, f: { num: 3 } }, { id: 'qld', t: 38, max: 7, f: { num: 3 } }, { id: 'nz', t: 48, max: 8, f: { num: 3 } }, { id: 'nsw', t: 58, max: 8, f: { num: 4 } }],
   'south-america': [
-    { id: 'ec', t: 12, card: 'one', f: { one: 1 }, slack: 1 }, { id: 'pe', t: 22, f: { one: 1 } }, { id: 'ar', t: 36, f: { one: 1, num: 2 } },
-    { id: 'cl', t: 54, f: { one: 1, num: 3 } }, { id: 'br', t: 72, f: { one: 1, num: 3 } }, { id: 'co', t: 96, f: { one: 1, num: 3 } }],
+    { id: 'ec', t: 10, max: 6, card: 'one', f: { one: 1 }, cap: { 1: 3 } }, { id: 'pe', t: 16, max: 6, f: { one: 1 }, cap: { 1: 4 } },
+    { id: 'ar', t: 24, max: 7, f: { one: 1, num: 2 }, cap: { 1: 4 } }, { id: 'co', t: 34, max: 7, f: { one: 1, num: 2 }, cap: { 1: 4 } },
+    { id: 'cl', t: 44, max: 7, f: { one: 1, num: 3 }, cap: { 1: 4 } }, { id: 'br', t: 56, max: 8, f: { one: 1, num: 3 }, cap: { 1: 4 } }],
   africa: [
-    { id: 'eg', t: 14, card: 'gate', f: { gate: 1 }, slack: 1 }, { id: 'ke', t: 28, f: { gate: 1 } }, { id: 'ma', t: 44, f: { gate: 2 } },
-    { id: 'et', t: 64, f: { gate: 2, one: 1 } }, { id: 'za', t: 86, f: { gate: 2, num: 2, one: 1 } }, { id: 'ng', t: 120, f: { gate: 3, num: 2, one: 1 } }],
+    { id: 'eg', t: 10, max: 6, card: 'gate', f: { gate: 1 }, cap: { 2: 1 } }, { id: 'ke', t: 16, max: 7, f: { gate: 1 }, cap: { 2: 2 } },
+    { id: 'ma', t: 24, max: 7, f: { gate: 2 }, cap: { 2: 2 } }, { id: 'et', t: 34, max: 7, f: { gate: 1, one: 1 }, cap: { 2: 2, 1: 3 } },
+    { id: 'za', t: 44, max: 8, f: { gate: 2, num: 2 }, cap: { 2: 2 } }, { id: 'ng', t: 56, max: 8, f: { gate: 2, one: 1 }, cap: { 2: 2, 1: 3 } }],
   'north-america': [
-    { id: 'jm', t: 14, card: 'frag', f: { frag: 1 }, slack: 1 }, { id: 'cu', t: 28, card: 'ord', f: { ord: 2 }, slack: 1 },
-    { id: 'ca', t: 56, f: { frag: 1, ord: 2 } }, { id: 'mx', t: 84, f: { frag: 1, ord: 2, gate: 1 } }, { id: 'us', t: 70, f: { frag: 1, ord: 1, gate: 1, one: 1 } }],
+    { id: 'jm', t: 10, max: 6, card: 'frag', f: { frag: 1 }, cap: { 3: 2 } }, { id: 'cu', t: 16, max: 6, card: 'ord', f: { ord: 1 } },
+    { id: 'ca', t: 26, max: 7, f: { frag: 1, ord: 1 }, cap: { 3: 2 } }, { id: 'us', t: 36, max: 7, f: { gate: 1, ord: 2 }, cap: { 2: 2 } },
+    { id: 'mx', t: 46, max: 8, f: { one: 1, frag: 1 }, cap: { 1: 3, 3: 2 } }],
   asia: [
-    { id: 'th', t: 40, card: 'mix', f: { num: 2, gate: 1, ord: 1 } }, { id: 'jp', t: 60, f: { one: 1, frag: 1, num: 2 } },
-    { id: 'id', t: 85, f: { gate: 2, one: 1, ord: 1 } }, { id: 'kr', t: 110, f: { num: 3, frag: 1, gate: 1, one: 1 } },
-    { id: 'cn', t: 150, f: { num: 3, one: 1, gate: 2, frag: 1, ord: 2 } }, { id: 'in', t: 200, f: { num: 4, one: 1, gate: 3, frag: 1, ord: 2 } }],
+    { id: 'th', t: 16, max: 7, card: 'mix', f: { num: 2, gate: 1 }, cap: { 2: 2 } }, { id: 'jp', t: 26, max: 8, f: { one: 1, num: 2 }, cap: { 1: 4 } },
+    { id: 'id', t: 36, max: 8, f: { gate: 1, ord: 1 }, cap: { 2: 2 } }, { id: 'kr', t: 48, max: 8, f: { num: 2, one: 1, frag: 1 }, cap: { 1: 3, 3: 2 } },
+    { id: 'cn', t: 60, max: 9, f: { gate: 1, one: 1, ord: 2 }, cap: { 1: 3, 2: 2 } }, { id: 'in', t: 74, max: 9, f: { num: 2, gate: 1, frag: 1 }, cap: { 2: 2, 3: 2 } }],
 };
 const CONT_ORDER = ['europe', 'oceania', 'south-america', 'africa', 'north-america', 'asia'];
 
@@ -97,6 +103,7 @@ function generate(region, cfg, seed) {
     list.sort((a, b) => a.L - b.L); return (pairCache[k] = list.slice(0, Math.max(6, Math.floor(list.length * 0.12))));
   }
   const tries = cfg.tries || 260;
+  const capOf = t => (cfg.cap && cfg.cap[t] !== undefined) ? cfg.cap[t] : 99; const cntT = (z, t) => z.r.filter(e => e[2] === t).length;
   for (let tr = 0; tr < tries; tr++) {
     // start / goal: prefer far-apart pairs
     const pairs = []; for (const a of ids) for (const b of ids) if (a !== b) pairs.push([a, b, D(a, b)]); pairs.sort((x, y) => y[2] - x[2]);
@@ -106,12 +113,12 @@ function generate(region, cfg, seed) {
     const pz = { s, g, c: ids, r: [], n: {}, k: {}, o: [] };
     const used = new Set(); const pk = (a, b) => a < b ? a + '|' + b : b + '|' + a;
     // route edges
-    for (let i = 0; i + 1 < n; i++) { let t = 0; if (f.one && rnd() < 0.55) pz.r.push([P[i], P[i + 1], 1]); else pz.r.push([P[i], P[i + 1], 0]); used.add(pk(P[i], P[i + 1])); }
+    for (let i = 0; i + 1 < n; i++) { let t = 0; if (f.one && rnd() < 0.55 && cntT(pz, 1) < capOf(1)) pz.r.push([P[i], P[i + 1], 1]); else pz.r.push([P[i], P[i + 1], 0]); used.add(pk(P[i], P[i + 1])); }
     // gates (key early on the route, gate later on the route)
     const gcount = f.gate || 0;
     for (let c = 0; c < gcount; c++) { const ki = 1 + Math.floor(rnd() * Math.max(1, n - 4)); const kc = P[ki]; if (pz.k[kc] !== undefined) continue;
       const cand = []; for (let j = Math.max(ki, 1); j + 1 < n; j++) if (pz.r[j][2] === 0 || pz.r[j][2] === 1) cand.push(j);
-      if (!cand.length) continue; if (cand.length && rnd() < 0.75) { const j = cand[Math.floor(rnd() * cand.length)]; if (pz.r[j][2] === 0) pz.r[j] = [pz.r[j][0], pz.r[j][1], 2, c]; else continue; }
+      if (!cand.length) continue; if (cand.length && rnd() < 0.75) { const j = cand[Math.floor(rnd() * cand.length)]; if (pz.r[j][2] === 0 && cntT(pz, 2) < capOf(2)) pz.r[j] = [pz.r[j][0], pz.r[j][1], 2, c]; else continue; }
       pz.k[kc] = c; }
     // fragile route edge (the route may use one fragile bridge)
     if (f.frag && rnd() < 0.5) { const cand = []; for (let j = 0; j + 1 < n; j++) if (pz.r[j][2] === 0) cand.push(j); if (cand.length) { const j = cand[Math.floor(rnd() * cand.length)]; pz.r[j] = [pz.r[j][0], pz.r[j][1], 3]; } }
@@ -141,7 +148,7 @@ function generate(region, cfg, seed) {
       // crossing / pass-through filters
       let ok = true, cr = 0; for (const e of pz.r) { if (e.includes(c.a) || e.includes(c.b)) continue; if (cross(pos[c.a], pos[c.b], pos[e[0]], pos[e[1]])) cr++; } if (cr > (att >= 3 ? 1 : 0)) ok = false;
       if (!ok) continue; for (const o of ids) { if (o === c.a || o === c.b) continue; if (ptSeg(pos[o], pos[c.a], pos[c.b]) < med * (att >= 3 ? 0.1 : 0.2)) { ok = false; break; } } if (!ok) continue;
-      const order = types.slice().sort(() => rnd() - 0.5);
+      const order = types.filter(t => t === 0 || cntT(pz, t) < capOf(t)).sort(() => rnd() - 0.5);
       for (const t of order) {
         const e = t === 1 ? (rnd() < 0.5 ? [c.a, c.b, 1] : [c.b, c.a, 1]) : t === 2 ? [c.a, c.b, 2, Object.values(pz.k)[Math.floor(rnd() * Object.keys(pz.k).length)]] : [c.a, c.b, t];
         pz.r.push(e); const sv = solve(pz, 2);
@@ -196,6 +203,7 @@ function climb(best, region, cfg, rnd, f, allowFail, ids, n) {
       if (t === 2 && !keys.length) continue; z.r[i] = t === 1 ? [e[0], e[1], 1] : t === 2 ? [e[0], e[1], 2, keys[Math.floor(rnd() * keys.length)]] : [e[0], e[1], t];
     }
     if (z.r.length > n + 4) continue;
+    if ([1, 2, 3].some(t => z.r.filter(e => e[2] === t).length > ((cfg.cap && cfg.cap[t] !== undefined) ? cfg.cap[t] : 99))) continue;
     const sv = solve(z, 2); if (sv.count !== 1) continue; if (!present(z)) continue;
     const r2 = { ...cur, pz: z, sol: sv.first, nodes: sv.nodes, dead: sv.dead };
     if (H(r2) <= H(cur)) continue;
@@ -207,12 +215,16 @@ function climb(best, region, cfg, rnd, f, allowFail, ids, n) {
 
 // ---- build everything
 const baseRegions = {}; const baseCont = {}; for (const c of base) { baseCont[c.id] = c; for (const r of c.regions) baseRegions[r.id] = r; }
-const PUZ = {}; const report = []; const solveInfo = {}; let seedN = +(process.env.SEED||7);
+const PUZ = {}; const report = []; const solveInfo = {}; let seedN = +(process.env.SEED||23);
 const DATA1 = CONT_ORDER.map(cid => ({
   id: cid, name: baseCont[cid].name, blurb: baseCont[cid].blurb,
   regions: PLAN[cid].map(cfg => {
     const r0 = baseRegions[cfg.id]; const r = { id: r0.id, name: r0.name, capital: r0.capital, flag: r0.flag, fact: r0.fact, cities: r0.cities.map(c => ({ id: c.id, name: c.name, lat: c.lat, lon: c.lon })) };
     for (const a of ADD[cfg.id] || []) r.cities.push({ id: a[0], name: a[1], lat: a[2], lon: a[3] });
+    // fewer cities where rules are combined: drop the city that sits closest to another one (never the first = capital / biggest city)
+    while (cfg.max && r.cities.length > cfg.max) { const cs0 = Math.cos(r.cities.reduce((q, c) => q + c.lat, 0) / r.cities.length * Math.PI / 180); let bi = -1, bd = 1e9;
+      r.cities.forEach((c, i) => { if (i === 0) return; let m = 1e9; r.cities.forEach((d, j) => { if (i !== j) m = Math.min(m, Math.hypot((c.lon - d.lon) * cs0, c.lat - d.lat)); }); if (m < bd - 1e-9 || (Math.abs(m - bd) < 1e-9 && i > bi)) { bd = m; bi = i; } });
+      r.cities.splice(bi, 1); }
     if (cfg.card) r.card = cfg.card;
     let res = null; for (let attempt = 0; attempt < 6 && !res; attempt++) res = generate(r, { ...cfg, attempt, tries: 400 + attempt * 600 }, (seedN += 7919));
     if (!res) throw new Error('no puzzle for ' + cfg.id);

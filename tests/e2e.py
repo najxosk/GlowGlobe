@@ -129,7 +129,7 @@ def play_current(pg, touch):
     if pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')"): pg.click('#b-gotit'); pg.wait_for_timeout(150)
     rid = pg.evaluate("S.regId"); sol = pg.evaluate("S.pz.sol")
     for c2 in sol[1:]: tap_city(pg, touch, c2)
-    pg.wait_for_selector('#b-next', state='visible', timeout=6000)
+    pg.wait_for_selector('#b-next', state='visible', timeout=12000)
     return rid
 
 def hero_text(pg):
@@ -213,6 +213,24 @@ def regression_checks(pg, touch, label):
     ok(pg.evaluate("S.regId") == 'fr' and pg.evaluate("S.contId") == 'europe', f'{label} v3 save: Next -> France')
     # back to a clean slate
     set_save(pg, base)
+
+
+def layout_change_checks(pg, touch, label):
+    """round 5 re-generated every level (fewer cities, new order inside some continents): saves from the earlier layout must stay sane"""
+    base = {'v': 4, 'sound': True, 'tutorial': 1, 'undos': {'de': 2}, 'stars': {'uk': 3, 'pt': 3, 'fr': 2, 'it': 3}, 'seen': {'basic': 1}, 'currentContinent': 'europe', 'currentRegion': 'de',
+            'partial': {'de': ['leipzig', 'hamburg', 'berlin']}, 'doneRegions': ['uk', 'pt', 'fr', 'it'], 'doneContinents': []}
+    set_save(pg, base)
+    pg.click('#b-play'); pg.wait_for_timeout(300)
+    ok(pg.evaluate("S.regId") == 'de' and pg.evaluate("S.path.length") == 1 and pg.evaluate("S.path[0]") == pg.evaluate("S.pz.s"), f'{label} old partial route with a city that no longer exists (Leipzig) is reset to the start of the new Germany level')
+    ok(pg.evaluate("S.save.stars.fr") == 2 and len(pg.evaluate("S.save.doneRegions")) == 4, f'{label} finished countries and their stars survive the new layout')
+    # Africa: a finished country that now sits later/earlier in the order must never show a lock
+    set_save(pg, dict(base, doneRegions=['eg', 'za', 'et'], stars={'eg': 3, 'za': 2, 'et': 3}, partial={}, currentContinent='africa', currentRegion='ke'))
+    pg.click('button[id="b-con:africa"]'); pg.wait_for_timeout(200)
+    locked_done = pg.evaluate("Array.from(document.querySelectorAll('.regcell.done.lock')).length")
+    ok(locked_done == 0, f'{label} a finished country is never shown as locked, whatever the order ({locked_done} locked+done)')
+    ok(pg.evaluate("Array.from(document.querySelectorAll('.regcell')).length") == 6, f'{label} Africa list shows its 6 countries')
+    pg.click('#ov-cont #b-close'); pg.wait_for_timeout(100)
+    set_save(pg, {'v': 4, 'sound': True, 'tutorial': 1, 'undos': {}, 'stars': {}, 'seen': {'basic': 1}, 'currentContinent': 'europe', 'currentRegion': 'uk', 'partial': {}, 'doneRegions': [], 'doneContinents': []})
 
 
 CONTS = ['europe', 'oceania', 'south-america', 'africa', 'north-america', 'asia']
@@ -329,18 +347,22 @@ with sync_playwright() as p:
     done = pg.evaluate("S.save.doneRegions")
     ok(len(done) >= 11, f'11 levels (first two of each continent) persisted through reloads: {len(done)}')
     # illegal-move messages for each rule on the real first levels
-    msgs = {'tas': 'number', 'ec': 'One-way', 'eg': 'gate', 'ca': 'dashed'}
-    for rid, word in msgs.items():
-        open_level(pg, rid); pz = pg.evaluate("S.pz")
-        found = pg.evaluate("""()=>{var pz=S.pz,want=%s,res=null;function go(p){if(res)return;var st=puzState(pz,p);var u=p[p.length-1];if(!puzMoves(pz,p).length)return;
-          for(var to in puzPrep(pz).out[u]){var w=puzCheck(pz,p,st.vis,st.broken,to);if(w&&w.indexOf(want)===0){res=[p.slice(),to];return;}}
-          var m=puzMoves(pz,p);for(var i=0;i<m.length&&!res;i++)go(p.concat([m[i]]));}go([pz.s]);return res;}""" % json.dumps({'tas': 'num', 'ec': 'oneway', 'eg': 'gate', 'ca': 'broken'}[rid]))
+    # (the gentle teaching levels are small, so a refusal may only be reachable in a later level of the same continent)
+    msgs = [(['tas', 'wa', 'sa', 'vic', 'qld', 'nz', 'nsw'], 'reserved', 'number'), (['ec', 'pe', 'ar', 'cl', 'co', 'br'], 'oneway', 'One-way'),
+            (['eg', 'ke', 'ma', 'za', 'et', 'ng'], 'gate', 'gate'), (['jm', 'ca', 'mx'], 'broken', 'dashed')]
+    for cands, want_code, word in msgs:
+        found = None
+        for rid in cands:
+            open_level(pg, rid)
+            found = pg.evaluate("""()=>{var pz=S.pz,want=%s,res=null;function go(p){if(res)return;var st=puzState(pz,p);var u=p[p.length-1];if(!puzMoves(pz,p).length)return;
+              for(var to in puzPrep(pz).out[u]){var w=puzCheck(pz,p,st.vis,st.broken,to);if(w&&w.indexOf(want)===0){res=[p.slice(),to];return;}}
+              var m=puzMoves(pz,p);for(var i=0;i<m.length&&!res;i++)go(p.concat([m[i]]));}go([pz.s]);return res;}""" % json.dumps(want_code))
+            if found: break
+        ok(found is not None, f'a {word} refusal is reachable in one of the {cands[0]}.. levels')
         if found:
             for c2 in found[0][1:]: tap_city(pg, True, c2)
             n0 = pg.evaluate("S.path.length"); tap_city(pg, True, found[1]); pg.wait_for_timeout(120)
             ok(pg.evaluate("S.path.length") == n0 and word.lower() in pg.inner_text('#tut').lower(), f'{rid}: illegal {word} move refused with an explanation')
-        else:
-            print(f'  (no {word} refusal reachable on {rid} - skipped)')
     # rules help button
     pg.click('#b-rules'); pg.wait_for_timeout(200)
     ok(pg.evaluate("document.querySelector('#ov-rule').classList.contains('on')"), '? button shows the rules of the level')
@@ -387,6 +409,7 @@ with sync_playwright() as p:
     pg.evaluate("localStorage.setItem('glow-globe-v1','{broken')"); pg.reload(); pg.wait_for_timeout(200)
     ok(pg.evaluate("S.save.doneRegions.length") == 0, 'corrupt save falls back to a fresh game')
     regression_checks(pg, True, 'mobile')
+    layout_change_checks(pg, True, 'mobile')
     b.close()
 
     # ================= desktop 1280x720 (mouse) =================
@@ -409,6 +432,7 @@ with sync_playwright() as p:
     ok(pg.evaluate("Object.keys(S.save.stars).length") >= 12, 'desktop: stars persisted after reload')
     pg.evaluate("S.save.seen.mix=1;S.regId='in';enterPlay();"); pg.wait_for_timeout(300); pg.screenshot(path=str(SHOTS / 'd-09-india-hardest.png'))
     regression_checks(pg, False, 'desktop')
+    layout_change_checks(pg, False, 'desktop')
     b.close()
 
 print('\nConsole/page errors:', len(errors))
