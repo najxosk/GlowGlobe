@@ -231,10 +231,12 @@ function nextFromCard(){var c=S.card;if(!c)return;
   if(nx){S.regId=nx.id;saveS(S.save);enterPlay();}else enterContinentHero(cont);}
 
 var FUNNY={'europe':'Europe invented the coffee break, then took every single one.','asia':'Asia: four billion people and still no agreed seating plan.','africa':'Africa: the whole continent packed into one sentence - no.','north-america':'North America loudly insists it is two whole countries.','south-america':'South America: so much rhythm the map had to wobble.','oceania':'Oceania: mostly ocean. The name checks out.'};
+var FUNNY_ICON={'europe':'\uD83D\uDD32\u2615\uFE0F','asia':'\uD83C\uDF0F\uD83D\uDD32','africa':'\uD83C\uDF0D\uD83E\uDEA8','north-america':'\uD83C\uDF0E\uD83C\uDF7B','south-america':'\uD83C\uDF0D\uD83E\uDD88','oceania':'\uD83C\uDF0A\uD83D\uDC0B'};
 
 function enterContinentHero(cont){S.screen='hero';S.contId=cont.id;hideAll();audio.unlock();audio.continent();if(navigator.vibrate)navigator.vibrate([20,40,60]);burst(W/2,H/2,80,true);glowAmt=1;
   var q=S.save.doneContinents.indexOf(cont.id)<0;
-  var p=$('#ov-hero .panel');p.innerHTML='<h2>'+cont.name+(q?' is alight!':'')+'</h2><p class="fact">'+cont.blurb+'</p><p class="funny">'+FUNNY[cont.id]+'</p><button class="btn big" id="b-nextc">Next continent</button>';
+  var icon=(FUNNY_ICON[cont.id]||'\uD83C\uDF0D')+'';
+  var p=$('#ov-hero .panel');p.innerHTML='<div class="card"><div class="bigbuy">'+icon+'</div><h2>'+cont.name+(q?' is alight!':'')+'</h2><p class="fact">'+cont.blurb+'</p><p class="funny">'+FUNNY[cont.id]+'</p><button class="btn big" id="b-nextc">Next continent</button></div>';
   $('#ov-hero').classList.add('on');}
 function nextContinent(){var i=DATA.map(function(c){return c.id;}).indexOf(S.contId);var nx=DATA[Math.min(DATA.length-1,i+1)];
   S.contId=nx.id;S.regId=nx.regions[0].id;saveS(S.save);enterContinentOverlay(nx.id);}
@@ -335,7 +337,7 @@ addEventListener('pointerup',function(e){if(S.screen!=='play'){S.pressedId=null;
 
 /* ---- buttons ---- */
 document.body.addEventListener('click',function(e){var t=e.target;
-  if(t.id==='b-play'){if(!hasProgress(S.save)){S.regId='uk';S.save.currentRegion='uk';S.contId='europe';saveS(S.save);}if(!S.contId)S.contId='europe';enterPlay();return;}
+  if(t.id==='b-play'){if(!hasProgress(S.save)){S.regId='uk';S.save.currentRegion='uk';S.contId='europe';saveS(S.save);}else{S.contId=S.save.currentContinent||'europe';S.regId=S.save.currentRegion||'uk';}if(!S.contId)S.contId='europe';enterPlay();return;}
   if(t.id==='b-atlas'){enterAtlas();return;}
   if(t.id==='b-sound'){S.save.sound=!S.save.sound;audio.setMuted(!S.save.sound);saveS(S.save);enterTitle();return;}
   if(t.id==='b-reset'){S.save=fresh();saveS(S.save);enterTitle();return;}

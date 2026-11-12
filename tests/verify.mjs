@@ -46,6 +46,7 @@ vm.runInContext(js, ctx);
 const run = (c) => vm.runInContext(c, ctx);
 ok(run("typeof FUNNY === 'object'"), "FUNNY continent blurbs present");
 ok(run("typeof audio.city === 'function'"), "audio vsuvka (rising melody hook) present");
+ok(run("typeof FUNNY_ICON === 'object'"), "FUNNY_ICON continent emoji present");
 
 vm.runInContext("S.regId='uk'; enterPlay();", ctx);
 ok(run("S.screen") === "play", "enterPlay goes to play screen");
@@ -63,6 +64,14 @@ for (let ri=0; ri<D[0].regions.length; ri++){
 ok(run("S.save.doneRegions.length") === D[0].regions.length, "all Europe regions done");
 ok(run("S.save.doneContinents.indexOf('europe')>=0"), "whole continent lights after last city");
 ok(run("earthPct(S.save)") >= 16, "earth percentage reflects progress");
+
+// Resume: "Continue" must restore the last continent/region, not always UK
+run("S.save.currentContinent='south-america'; S.save.currentRegion='ar'; saveS(S.save);");
+run("S.save=fresh(); S.save=fresh();");
+// simulate b-play path with progress
+vm.runInContext("S.save.currentContinent='south-america'; S.save.currentRegion='ar'; S.save.doneRegions=['uk']; hasProgress(S.save);", ctx);
+run("S.contId=S.save.currentContinent; S.regId=S.save.currentRegion;");
+ok(run("S.contId") === "south-america" && run("S.regId") === "ar", "resume reads saved continent/region");
 
 console.log(fails === 0 ? "ALL CHECKS PASSED" : (fails + " CHECK(S) FAILED"));
 process.exit(fails === 0 ? 0 : 1);
