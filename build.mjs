@@ -117,8 +117,8 @@ function cameraFromBox(box,w,h,ins){
   return{minLon:box.minLon,maxLon:box.maxLon,minLat:box.minLat,maxLat:box.maxLat,cos:cosx,scale:scale,ox:ins.left+(aw-worldW*scale)/2,oy:ins.top+(ah-worldH*scale)/2,north:box.maxLat*cosx};}
 function project(cam,lon,lat){return{x:cam.ox+(lon-cam.minLon)*cam.scale,y:cam.oy+(cam.north-lat*cam.cos)*cam.scale};}
 function cameraForRegion(region,w,h,ins){var ml=1e9,ML=-1e9,mB=1e9,MB=-1e9;
-  for(var i=0;i<region.cities.length;i++){var bb=BBOX[region.cities[i].id];if(!bb)continue;
-    if(bb[0]<ml)ml=bb[0];if(bb[1]>ML)ML=bb[1];if(bb[2]<mB)mB=bb[2];if(bb[3]>MB)MB=bb[3];}
+  for(var i=0;i<region.cities.length;i++){var cc=region.cities[i];
+    if(cc.lon<ml)ml=cc.lon;if(cc.lon>ML)ML=cc.lon;if(cc.lat<mB)mB=cc.lat;if(cc.lat>MB)MB=cc.lat;}
   var sl=Math.max(2.4,ML-ml),sb=Math.max(1.8,MB-mB);
   return cameraFromBox({minLon:ml-sl*0.5,maxLon:ML+sl*0.5,minLat:mB-sb*0.55,maxLat:MB+sb*0.55},w,h,ins);}
 function worldCamera(w,h,ins){return cameraFromBox({minLon:-170,maxLon:194,minLat:-52,maxLat:76},w,h,ins);}

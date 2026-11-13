@@ -50,6 +50,9 @@ ok(run("typeof FUNNY_ICON === 'object'"), "FUNNY_ICON continent emoji present");
 
 vm.runInContext("S.regId='uk'; enterPlay();", ctx);
 ok(run("S.screen") === "play", "enterPlay goes to play screen");
+// Cities must be spread across the screen, not clustered in a corner (camera bug)
+const spread = run("(function(){ var mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9; for(var i=0;i<S.cities.length;i++){mnx=Math.min(mnx,S.cities[i].x);mxx=Math.max(mxx,S.cities[i].x);mny=Math.min(mny,S.cities[i].y);mxy=Math.max(mxy,S.cities[i].y);} return {xr:mxx-mnx,yr:mxy-mny}; })()");
+ok(spread.xr > 100 && spread.yr > 60, "cities spread across screen (" + Math.round(spread.xr) + "x" + Math.round(spread.yr) + ")");
 const uk = run("DATA[0].regions[0].cities.map(c=>c.id)");
 for (const id of uk) run("lightCity('" + id + "')");
 ok(run("S.save.doneRegions.indexOf('uk')>=0"), "completing UK region records doneRegions");
