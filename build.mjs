@@ -59,6 +59,28 @@ const regionEps = 0.7, landEps = 2.0;
 const regionRings = {};
 for (const id of Object.keys(regionRingsRaw)) regionRings[id] = simplifyRings(regionRingsRaw[id], regionEps);
 const landRings = simplifyRings(landRingsRaw, landEps);
+
+/* ---------- 3b. Chaikin smoothing (round off corners) ---------- */
+function chaikinRing(pts) {
+  if (pts.length < 4) return pts.slice();
+  const out = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+    out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+  }
+  return out;
+}
+function chaikinRings(rings, passes) {
+  let arr = rings.map((r) => r.slice());
+  for (let p = 0; p < passes; p++) arr = arr.map(chaikinRing);
+  return arr.filter((r) => r.length >= 3);
+}
+const CHAIKIN_PASSES = 1;
+for (const id of Object.keys(regionRings)) regionRings[id] = chaikinRings(regionRings[id], CHAIKIN_PASSES);
+const smLand = chaikinRings(landRings, CHAIKIN_PASSES);
+landRings.splice(0, landRings.length, ...smLand);
+
 let tr = 0, tl = 0;
 Object.values(regionRings).forEach((x) => x.forEach((r) => (tr += r.length)));
 landRings.forEach((r) => (tl += r.length));
@@ -85,6 +107,90 @@ const regionsJson = JSON.stringify(regionRings);
 const landJson = JSON.stringify(landRings);
 const bboxJson = JSON.stringify(bbox);
 
+/* ---------- 5b. Road/puzzle generator (Hamiltonian path) ----------
+   Build a non-crossing graph per region whose only Hamiltonian paths
+   number 1..4. Guarantees at least one solution (the path itself);
+   solved by brute-force DP over all subsets (N<=8). */
+function projCity(region) {
+  let mLat = 0, n = 0;
+  for (const c of region.cities) { mLat += c.lat; n++; }
+  const cosx = Math.max(0.35, Math.cos((mLat / n) * Math.PI / 180));
+  return region.cities.map((c) => ({ id: c.id, x: c.lon * cosx, y: c.lat }));
+}
+function segCross(a, b, c, d) {
+  function o(p, q, r) { const v = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y); return v > 1e-9 ? 1 : v < -1e-9 ? -1 : 0; }
+  const o1 = o(a, b, c), o2 = o(a, b, d), o3 = o(c, d, a), o4 = o(c, d, b);
+  if (o1 !== o2 && o3 !== o4) return true;
+  return false; // ignore collinear touching
+}
+function edgesCross(pts, e1, e2) {
+  if (e1[0] === e2[0] || e1[0] === e2[1]) return false;
+  if (e1[1] === e2[0] || e1[1] === e2[1]) return false;
+  return segCross(pts[e1[0]], pts[e1[1]], pts[e2[0]], pts[e2[1]]);
+}
+function countHamPaths(adj, n) {
+  // DP over bitmask: dp[mask][last] = number of paths covering mask ending at last
+  const size = 1 << n;
+  const dp = new Float64Array(size * n);
+  for (let i = 0; i < n; i++) dp[(1 << i) * n + i] = 1;
+  for (let mask = 1; mask < size; mask++) {
+    for (let last = 0; last < n; last++) {
+      const v = dp[mask * n + last];
+      if (!v) continue;
+      for (const nx of adj[last]) {
+        if (mask & (1 << nx)) continue;
+        dp[(mask | (1 << nx)) * n + nx] += v;
+      }
+    }
+  }
+  let total = 0;
+  for (let i = 0; i < n; i++) total += dp[(size - 1) * n + i];
+  return total; // directed ^ counts each undirected path twice
+}
+function buildRegionGraph(region) {
+  const pts = projCity(region);
+  const n = region.cities.length;
+  const idx = {}; for (let i = 0; i < n; i++) idx[pts[i].id] = i;
+  // order cities by y (north->south) -> y-monotone chain never self-crosses
+  const order = pts.map((_, i) => i).sort((a, b) => pts[b].y - pts[a].y);
+  const edges = [];
+  for (let k = 0; k < order.length - 1; k++) edges.push([order[k], order[k + 1]]);
+  // candidate extra edges: all pairs, nearest first
+  const cand = [];
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
+    if (Math.abs(order.indexOf(a) - order.indexOf(b)) <= 1) continue; // skip chain adjacents
+    const d = Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y);
+    cand.push({ a, b, d });
+  }
+  cand.sort((p, q) => p.d - q.d);
+  function adjset() {
+    const adj = Array.from({ length: n }, () => []);
+    for (const [a, b] of edges) { adj[a].push(b); adj[b].push(a); }
+    return adj;
+  }
+  let count = countHamPaths(adjset(), n); // base chain => exactly 1 undirected (2 directed)
+  // greedily add chords while total undirected stays <= 4 and no crossings
+  for (const c of cand) {
+    const eN = [c.a, c.b];
+    let cross = false;
+    for (const e of edges) if (edgesCross(pts, eN, e)) { cross = true; break; }
+    if (cross) continue;
+    edges.push(eN);
+    const c2 = countHamPaths(adjset(), n);
+    if (c2 > 4) { edges.pop(); continue; }
+    count = c2;
+  }
+  if (count < 1) throw new Error("no hamiltonian path for " + region.id);
+  return { edges, solutions: count };
+}
+const ROADS = {};
+for (const cont of continents) for (const region of cont.regions) {
+  const g = buildRegionGraph(region);
+  ROADS[region.id] = g.edges.map(([a, b]) => [region.cities[a].id, region.cities[b].id]);
+  console.log(`  puzzle ${region.id}: ${g.solutions} solution(s), ${g.edges.length} roads`);
+}
+const roadsJson = JSON.stringify(ROADS);
+
 /* ---------- 6. Game JS (no backticks, no ${ inside) ---------- */
 const GAME_JS = String.raw`
 'use strict';
@@ -94,6 +200,15 @@ var REGION_COUNT = DATA.reduce(function(n,c){return n+c.regions.length;},0);
 var RINGS = __REGIONS__;
 var LAND = __LAND__;
 var BBOX = __BBOX__;
+var ROADS = __ROADS__;
+var NBR={};
+for(var _ci=0;_ci<DATA.length;_ci++)for(var _ri=0;_ri<DATA[_ci].regions.length;_ri++){
+  var _r=DATA[_ci].regions[_ri];var _nb={};
+  for(var _e=0;_e<(ROADS[_r.id]||[]).length;_e++){
+    var _ab=ROADS[_r.id][_e];
+    (_nb[_ab[0]]=_nb[_ab[0]]||[]).push(_ab[1]);
+    (_nb[_ab[1]]=_nb[_ab[1]]||[]).push(_ab[0]);}
+  NBR[_r.id]=_nb;}
 
 function $(s){return document.querySelector(s);}
 var TAU=Math.PI*2;
@@ -132,12 +247,12 @@ function trace(cam,rings){ctx.beginPath();
 
 /* ---- save ---- */
 var SAVE_KEY='glow-globe-v1';
-function fresh(){return{v:1,sound:true,tutorial:0,currentContinent:'europe',currentRegion:'uk',partial:{},doneRegions:[],doneContinents:[]};}
+function fresh(){return{v:2,sound:true,tutorial:0,hints:{},currentContinent:'europe',currentRegion:'uk',partial:{},doneRegions:[],doneContinents:[]};}
 function hasProgress(s){return s.doneRegions.length||s.doneContinents.length||s.tutorial>0||Object.keys(s.partial).some(function(k){return s.partial[k]&&s.partial[k].length;});}
 function load(){try{var raw=localStorage.getItem(SAVE_KEY);if(!raw)return fresh();var d=JSON.parse(raw);if(!d||d.v!==1)return fresh();var f=fresh();for(var k in f)d[k]=d[k]!==undefined?d[k]:f[k];return d;}catch(e){return fresh();}}
 function saveS(s){try{localStorage.setItem(SAVE_KEY,JSON.stringify(s));}catch(e){}}
 function earthPct(s){return Math.round(s.doneRegions.length/REGION_COUNT*100);}
-function regionUnlocked(s,ci,ri){if(ci>0&&s.doneContinents.indexOf(DATA[ci-1].id)<0)return false;if(ri<=0)return true;return s.doneRegions.indexOf(DATA[ci].regions[ri-1].id)>=0;}
+function regionUnlocked(s,ci,ri){if(ri<=0)return true;return s.doneRegions.indexOf(DATA[ci].regions[ri-1].id)>=0;}
 function litIDs(s,region){if(s.doneRegions.indexOf(region.id)>=0)return region.cities.map(function(c){return c.id;});return(s.partial[region.id]||[]);}
 
 /* ---- audio ---- */
@@ -163,7 +278,7 @@ function stepFx(dt){for(var i=0;i<particles.length;i++){var p=particles[i];p.lif
   shake=Math.max(0,shake-dt*14);glowAmt=Math.max(0,glowAmt-dt*0.8);}
 
 /* ---- state ---- */
-var S={save:load(),screen:'title',contId:'europe',regId:'uk',cities:[],lit:new Set(),tapOrder:[],shakes:{},hoverId:null,pressedId:null,lonelyId:null,t:0};
+var S={save:load(),screen:'title',contId:'europe',regId:'uk',cities:[],lit:new Set(),path:[],shakes:{},hoverId:null,pressedId:null,lonelyId:null,hintId:null,stuck:null,t:0};
 var LAST=performance.now();
 var id2city={};
 
@@ -187,37 +302,94 @@ function assignLabels(){var dirs=[[11,-5,0],[11,15,0],[-11,-5,2],[-11,15,2],[0,-
 function refreshHeader(){var el=$('#playhead');if(!el)return;var fr=findRegion(S.regId);var region=fr.region;
   el.innerHTML=(region.flag||'')+' '+region.name+' <span class="right">'+S.lit.size+'/'+region.cities.length+'</span>';el.style.display='block';}
 
-function hideAll(){$('#ov-title').classList.remove('on');$('#ov-atlas').classList.remove('on');$('#ov-cont').classList.remove('on');$('#ov-hero').classList.remove('on');$('#ov-world').classList.remove('on');$('#tut').style.display='none';}
+function hideAll(){$('#ov-title').classList.remove('on');$('#ov-atlas').classList.remove('on');$('#ov-cont').classList.remove('on');$('#ov-hero').classList.remove('on');$('#ov-world').classList.remove('on');$('#tut').style.display='none';$('#playctl').style.display='none';}
 
 function enterPlay(){var fr=findRegion(S.regId);var continent=fr.continent,region=fr.region;
   S.contId=continent.id;S.regId=region.id;S.cities=layout(region);
-  var lit=litIDs(S.save,region);S.lit=new Set(lit);S.tapOrder=lit.slice();S.shakes={};
-  S.lonelyId=(region.cities.length-lit.length)===1?region.cities.filter(function(c){return lit.indexOf(c.id)<0;})[0].id:null;
+  var lit=litIDs(S.save,region);S.lit=new Set(lit);S.path=lit.slice();S.shakes={};
+  S.lonelyId=null;S.hintId=null;S.stuck=null;
   assignLabels();id2city={};
   for(var i=0;i<S.cities.length;i++)id2city[S.cities[i].c.id]=S.cities[i];
-  S.screen='play';hideAll();refreshHeader();
-  if(region.id==='uk'&&S.save.tutorial===0){var t=$('#tut');t.innerHTML='Tap every city to light it up.<br><span class="dim">Start with the bobbing arrow.</span>';t.style.display='block';}
+  S.screen='play';hideAll();refreshHeader();ctl(true);
+  if(region.id==='uk'&&S.save.tutorial===0){var t=$('#tut');t.innerHTML='Tap a city to start.<br><span class="dim">Then follow the roads - each city only once.</span>';t.style.display='block';t.dataset.step='1';}
   else{$('#tut').style.display='none';}}
 
-function lightCity(id){if(S.screen!=='play')return;var fr=findRegion(S.regId);var region=fr.region;
-  if(S.lit.has(id)){audio.already();S.shakes[id]=(S.shakes[id]||0)+0.5;return;}
+function tapCity(id){if(S.screen!=='play')return;var fr=findRegion(S.regId);var region=fr.region;
   var c=S.cities.filter(function(x){return x.c.id===id;})[0];if(!c)return;
-  S.lit=new Set(S.lit);S.lit.add(id);S.tapOrder.push(id);
-  burst(c.x,c.y,26,S.lit.size===region.cities.length);
-  if(navigator.vibrate)navigator.vibrate(15);audio.unlock();
-  if(region.id==='uk'&&S.save.tutorial===0){S.save.tutorial=1;saveS(S.save);var tt=$('#tut');tt.innerHTML='Great! Now tap them all.';}
-  var arr=[];S.lit.forEach(function(x){arr.push(x);});
-  S.save.partial[S.regId]=arr;saveS(S.save);
-  audio.city(arr.length,arr.length===region.cities.length);
-  S.lonelyId=(region.cities.length-arr.length)===1?region.cities.filter(function(c){return arr.indexOf(c.id)<0;})[0].id:null;
+  audio.unlock();
+  var lb=region.cities.length;
+  if(S.save.doneRegions.indexOf(region.id)>=0)return;
+  // case 1: start (empty path)
+  if(S.path.length===0){S.path.push(id);S.lit.add(id);S.save.partial[region.id]=S.path.slice();saveS(S.save);
+    burst(c.x,c.y,24,false);audio.city(S.path.length,S.path.length===lb);
+    if(region.id==='uk')tutNext('1');bop(id);return;}
+  // case 2: already visited start selection
+  var last=S.path[S.path.length-1];
+  if(S.path.length===1&&S.path[0]===id&&S.lit.has(id)){return;}
+  if(S.lit.has(id)){audio.already();S.shakes[id]=(S.shakes[id]||0)+0.5;return;}
+  // must be neighbor of last
+  var nb=NBR[S.regId][last]||[];
+  if(nb.indexOf(id)<0){audio.already();S.shakes[id]=(S.shakes[id]||0)+0.5;flashTut('Not connected - tap a neighbor of the gold trail end.');return;}
+  S.path.push(id);S.lit.add(id);burst(c.x,c.y,24,S.path.length===lb);
+  if(navigator.vibrate)navigator.vibrate(15);
+  S.save.partial[region.id]=S.path.slice();saveS(S.save);
+  audio.city(S.path.length,S.path.length===lb);
+  if(region.id==='uk')tutNext('2');
+  var arr=S.path;
   if(arr.length===region.cities.length){
     audio.region();glowAmt=1;shake=6;burst(c.x,c.y,60,true);
-    S.save.partial[S.regId]=[];if(S.save.doneRegions.indexOf(region.id)<0)S.save.doneRegions.push(region.id);
+    S.save.partial[region.id]=[];if(S.save.doneRegions.indexOf(region.id)<0)S.save.doneRegions.push(region.id);
     var cd=findContinent(S.contId).regions.every(function(r){return S.save.doneRegions.indexOf(r.id)>=0;});
     if(cd&&S.save.doneContinents.indexOf(S.contId)<0)S.save.doneContinents.push(S.contId);
     var wd=S.save.doneContinents.length>=DATA.length;saveS(S.save);
     setTimeout(function(){regionCard(region,cd,wd);},700);
-  }else refreshHeader();}
+  }else{bop(id);checkStuck();}
+  refreshHeader();}
+
+function bop(id){var c=id2city[id];if(!c)return;S.shakes[id]=(S.shakes[id]||0)+0.9;}
+function undoCity(){if(S.screen!=='play'||S.path.length<1)return;var fr=findRegion(S.regId);var region=fr.region;
+  var id=S.path.pop();S.lit.delete(id);S.shakes[id]=0;S.hintId=null;S.stuck=null;
+  S.save.partial[region.id]=S.path.slice();saveS(S.save);audio.already();var el=$('#playhead');if(el)refreshHeader();}
+function restartRegion(){if(S.screen!=='play')return;var fr=findRegion(S.regId);var region=fr.region;
+  S.path=[];S.lit=new Set();S.shakes={};S.hintId=null;S.stuck=null;
+  S.save.partial[region.id]=[];saveS(S.save);audio.already();refreshHeader();}
+function checkStuck(){var fr=findRegion(S.regId);var region=fr.region;
+  if(S.path.length>=region.cities.length)return;
+  var last=S.path[S.path.length-1],nb=NBR[S.regId][last]||[],f=true;
+  for(var i=0;i<nb.length;i++)if(!S.lit.has(nb[i])){f=false;break;}
+  if(f){S.stuck=true;flashest('Stuck? Press Undo or Restart.');}}
+
+function nextHint(){if(S.screen!=='play')return;var fr=findRegion(S.regId);var region=fr.region;
+  var used=S.save.hints[region.id]||0;if(used>=3){flashest('No hints left - use Undo or Restart.');return;}
+  var n=findNextMove(region,S.path);if(!n){flashest('Stuck? Press Undo or Restart.');S.stuck=true;return;}
+  S.save.hints[region.id]=used+1;saveS(S.save);S.hintId=n;flashest('Hint: '+id2city[n].c.name+' is next.');refreshHints();}
+function findNextMove(region,path){var all=region.cities.map(function(c){return c.id;});
+  if(path.length===0)return all[0];
+  var last=path[path.length-1],nb=NBR[S.regId][last]||[];
+  var vis={};for(var i=0;i<path.length;i++)vis[path[i]]=true;
+  for(var j=0;j<nb.length;j++){var nx=nb[j];if(vis[nx])continue;
+    // try: does extending produce a solvable completion?
+    if(canComplete(region,path.concat([nx])))return nx;}
+  return null;}
+function canComplete(region,path){var all=region.cities.map(function(c){return c.id;});
+  var need={};var rem=0;for(var i=0;i<all.length;i++)if(path.indexOf(all[i])<0){need[all[i]]=true;rem++;}
+  if(rem===0)return true;var last=path[path.length-1];
+  // simple DFS over remaining set
+  return dfsRemaining(region,last,need,rem);}
+function dfsRemaining(region,last,need,rem){if(rem===0)return true;
+  var nb=NBR[region.id][last]||[];for(var i=0;i<nb.length;i++){var nx=nb[i];if(!need[nx])continue;
+    delete need[nx];var ok=dfsRemaining(region,nx,need,rem-1);need[nx]=true;
+    if(ok)return true;}return false;}
+function tutNext(step){var t=$('#tut');if(!t||t.style.display==='none')return;
+  if(t.dataset&&t.dataset.step!==String(step))return;
+  if(step==='1'){t.innerHTML='Great! Now follow the roads to the next city.<br><span class="dim">Gold line shows your route.</span>';t.dataset.step='2';}
+  else if(step==='2'){t.style.display='none';S.save.tutorial=1;saveS(S.save);}}
+function flashTut(msg){var t=$('#tut');if(regionIdTut())return;if(t){t.innerHTML=msg;t.style.display='block';clearTimeout(S._tt);S._tt=setTimeout(function(){if(S.save.tutorial===1)$('#tut').style.display='none';},1400);}}
+function regionIdTut(){return S.regId==='uk'&&S.save.tutorial===0;}
+function flashest(msg){flashTut(msg);}
+function refreshHints(){var el=$('#hintn');if(!el)return;var fr=findRegion(S.regId);
+  var used=S.save.hints[fr.region.id]||0;el.textContent=(3-used)+'';}
+function ctl(v){var el=$('#playctl');if(el)el.style.display=v?'flex':'none';}
 
 function regionCard(region,cd,wd){S.screen='card';hideAll();
   var p=$('#ov-hero .panel');p.innerHTML='<div class="card"><div class="bigbuy">'+(region.flag||'')+'</div>'+
@@ -231,12 +403,26 @@ function nextFromCard(){var c=S.card;if(!c)return;
   if(nx){S.regId=nx.id;saveS(S.save);enterPlay();}else enterContinentHero(cont);}
 
 var FUNNY={'europe':'Europe invented the coffee break, then took every single one.','asia':'Asia: four billion people and still no agreed seating plan.','africa':'Africa: the whole continent packed into one sentence - no.','north-america':'North America loudly insists it is two whole countries.','south-america':'South America: so much rhythm the map had to wobble.','oceania':'Oceania: mostly ocean. The name checks out.'};
+var CONT_EDU={
+ 'europe':'Did you know? Europe is the second-smallest continent, yet it holds 44 countries and the EU has 24 official languages. A tiny land, a giant of history.',
+ 'asia':'Did you know? Asia covers 30% of Earth land and hosts more than half of humanity - over 4.6 billion people, including Earth two most populated countries.',
+ 'africa':'Did you know? Africa has 54 countries, more than any continent, and the Sahara alone is about the size of the whole United States.',
+ 'north-america':'Did you know? North America is 3rd-largest but has the most lakes on Earth - Canada alone holds over 2 million of them.',
+ 'south-america':'Did you know? South America holds the Amazon, which produces about 20% of the oxygen we breathe and is home to one in ten known species.',
+ 'oceania':'Did you know? Oceania is mostly ocean - over 90% of its area is water. Australia is the only country that is also a whole continent.'};
 var FUNNY_ICON={'europe':'\uD83D\uDD32\u2615\uFE0F','asia':'\uD83C\uDF0F\uD83D\uDD32','africa':'\uD83C\uDF0D\uD83E\uDEA8','north-america':'\uD83C\uDF0E\uD83C\uDF7B','south-america':'\uD83C\uDF0D\uD83E\uDD88','oceania':'\uD83C\uDF0A\uD83D\uDC0B'};
+/* Image slot: drop a Grok-generated picture here as a data: URL (max ~3). Blank = emoji default. */
+var CONT_IMG={'europe':'','asia':'','africa':'','north-america':'','south-america':'','oceania':''};
 
 function enterContinentHero(cont){S.screen='hero';S.contId=cont.id;hideAll();audio.unlock();audio.continent();if(navigator.vibrate)navigator.vibrate([20,40,60]);burst(W/2,H/2,80,true);glowAmt=1;
   var q=S.save.doneContinents.indexOf(cont.id)<0;
   var icon=(FUNNY_ICON[cont.id]||'\uD83C\uDF0D')+'';
-  var p=$('#ov-hero .panel');p.innerHTML='<div class="card"><div class="bigbuy">'+icon+'</div><h2>'+cont.name+(q?' is alight!':'')+'</h2><p class="fact">'+cont.blurb+'</p><p class="funny">'+FUNNY[cont.id]+'</p><button class="btn big" id="b-nextc">Next continent</button></div>';
+  var img=CONT_IMG[cont.id]||'';var pic=img?'<img class="rewardimg" src="'+img+'">':'<div class="rewardick">'+icon+'</div>';
+  var edu=(q?'':'<p class="fact">'+(CONT_EDU[cont.id]||'')+'</p>');
+  var p=$('#ov-hero .panel');p.innerHTML='<div class="card">'+pic+'<h2>'+cont.name+(q?' is alight!':'')+'</h2><p class="fact">'+cont.blurb+'</p>'+
+    (q?'<p class="funny">'+FUNNY[cont.id]+'</p>':'')+edu+
+    (img?'':'<p class="limit">Picture coming soon - I have a nice one drafted (see release notes).</p>')+
+    '<button class="btn big" id="b-nextc">'+(q?'Next continent':'Great! Next continent')+'</button></div>';
   $('#ov-hero').classList.add('on');}
 function nextContinent(){var i=DATA.map(function(c){return c.id;}).indexOf(S.contId);var nx=DATA[Math.min(DATA.length-1,i+1)];
   S.contId=nx.id;S.regId=nx.regions[0].id;saveS(S.save);enterContinentOverlay(nx.id);}
@@ -256,9 +442,14 @@ function enterAtlas(){S.screen='atlas';hideAll();var h='<h2>Glow Atlas - '+earth
     h+='</div></div>';}
   h+='<button class="btn ghost" id="b-close">Back</button>';$('#ov-atlas .panel').innerHTML=h;$('#ov-atlas').classList.add('on');}
 function enterTitle(){S.screen='title';hideAll();var pct=earthPct(S.save);
+  var contBtns='<div class="contpick">';
+  for(var ci=0;ci<DATA.length;ci++){var c=DATA[ci];var cd=S.save.doneContinents.indexOf(c.id)>=0;
+    contBtns+='<button class="ctbtn'+(cd?' done':'')+'" id="b-con:'+c.id+'">'+(FUNNY_ICON[c.id]||'')+'<b>'+c.name+'</b></button>';}
+  contBtns+='</div>';
   $('#ov-title .panel').innerHTML='<h1>Glow Globe</h1><p class="tag">Light up the world, one city at a time.</p>'+
     (hasProgress(S.save)?'<div class="prog"><span>Earth <b>'+pct+'%</b> lit</span><div class="bar"><i style="width:'+pct+'%"></i></div></div>':'')+
-    '<button class="btn big" id="b-play">'+(hasProgress(S.save)?'Continue':'Play')+'</button>'+
+    '<button class="btn big" id="b-play">'+(hasProgress(S.save)?'Continue':'Start in Europe')+'</button>'+
+    '<div class="t2">Pick any continent:</div>'+contBtns+
     '<button class="btn" id="b-atlas">Glow Atlas</button>'+
     '<button class="btn ghost" id="b-sound">Sound: '+(S.save.sound?'on':'off')+'</button>'+
     (hasProgress(S.save)?'<button class="btn ghost" id="b-reset">Reset</button>':'')+
@@ -280,21 +471,33 @@ function drawPlay(){var fr=findRegion(S.regId);var continent=fr.continent,region
     if(glowAmt>0){ctx.beginPath();trace(cam,rings);ctx.globalAlpha=0.28+glowAmt*0.5;ctx.fillStyle='#e0ae45';ctx.fill();
       ctx.globalAlpha=0.4*glowAmt;ctx.lineWidth=8;ctx.strokeStyle='#f0b429';ctx.beginPath();trace(cam,rings);ctx.stroke();}
     ctx.globalAlpha=1;ctx.lineWidth=1.6;ctx.strokeStyle=glowAmt>0?'#ffe7b3':'#e6c98a';ctx.beginPath();trace(cam,rings);ctx.stroke();}
-  var lit=[];for(var k=0;k<S.tapOrder.length;k++){var c2=id2city[S.tapOrder[k]];if(c2)lit.push(c2);}
-  if(lit.length>=2){ctx.strokeStyle='rgba(120,170,255,0.35)';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(lit[0].x,lit[0].y);for(var L=1;L<lit.length;L++)ctx.lineTo(lit[L].x,lit[L].y);ctx.stroke();}
+  var lit=[];for(var k=0;k<S.path.length;k++){var c2=id2city[S.path[k]];if(c2)lit.push(c2);}
+  // roads (grey, non-path)
+  var rd=ROADS[region.id]||[];
+  ctx.strokeStyle='rgba(120,140,175,0.4)';ctx.lineWidth=1.4;ctx.setLineDash([3,4]);
+  for(var R=0;R<rd.length;R++){var na=id2city[rd[R][0]],nb2=id2city[rd[R][1]];if(!na||!nb2)continue;
+    ctx.beginPath();ctx.moveTo(na.x,na.y);ctx.lineTo(nb2.x,nb2.y);ctx.stroke();}
+  ctx.setLineDash([]);
+  // gold trail along the path
+  if(lit.length>=1){ctx.strokeStyle='rgba(240,180,41,0.9)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(lit[0].x,lit[0].y);
+    for(var L=1;L<lit.length;L++)ctx.lineTo(lit[L].x,lit[L].y);ctx.stroke();
+    if(lit.length>=2){ctx.strokeStyle='#fff2cc';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(lit[0].x,lit[0].y);for(var L2=1;L2<lit.length;L2++)ctx.lineTo(lit[L2].x,lit[L2].y);ctx.stroke();}}
+  // last visited highlight ring
+  if(lit.length){var lt=lit[lit.length-1];ctx.strokeStyle='#f0b429';ctx.lineWidth=2;ctx.beginPath();ctx.arc(lt.x,lt.y,10,0,TAU);ctx.stroke();}
   ctx.font='600 13px system-ui,sans-serif';ctx.textBaseline='middle';
   for(var i=0;i<S.cities.length;i++){var c=S.cities[i];var litNow=S.lit.has(c.c.id);
     var jx=Math.sin(S.t*42+c.x)*(S.shakes[c.c.id]||0)*5,jy=Math.cos(S.t*36+c.y)*(S.shakes[c.c.id]||0)*4;
-    var x=c.x+jx,y=c.y+jy,hover=S.hoverId===c.c.id,pressed=S.pressedId===c.c.id,lonely=S.lonelyId===c.c.id&&!litNow;
-    var pulse=lonely?1+Math.sin(S.t*5)*0.22:1,sc=(pressed?0.86:1)*pulse;
+    var x=c.x+jx,y=c.y+jy,hover=S.hoverId===c.c.id,pressed=S.pressedId===c.c.id,hintNow=S.hintId===c.c.id;
+    var pulse=(hintNow?1+Math.sin(S.t*8)*0.18:1),sc=(pressed?0.86:1)*pulse;
     if(Math.hypot(c.x-c.sx,c.y-c.sy)>9){ctx.strokeStyle='rgba(154,166,189,0.55)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(c.sx,c.sy);ctx.lineTo(x,y);ctx.stroke();
       ctx.fillStyle='#9aa6bd';ctx.beginPath();ctx.arc(c.sx,c.sy,2.2,0,TAU);ctx.fill();}
-    if(litNow){var r2=(lonely?8:6.2)*sc;ctx.fillStyle='rgba(240,180,41,0.16)';ctx.beginPath();ctx.arc(x,y,r2*3.2,0,TAU);ctx.fill();
+    if(litNow){var r2=6.2*sc;ctx.fillStyle='rgba(240,180,41,0.16)';ctx.beginPath();ctx.arc(x,y,r2*3.2,0,TAU);ctx.fill();
       ctx.fillStyle='rgba(255,214,120,0.38)';ctx.beginPath();ctx.arc(x,y,r2*1.75,0,TAU);ctx.fill();
       ctx.fillStyle='#fff8ea';ctx.beginPath();ctx.arc(x,y,r2*0.62,0,TAU);ctx.fill();}
-    else{var r3=(hover?7:5)*sc;if(lonely){ctx.strokeStyle='rgba(240,180,41,0.85)';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,14+Math.sin(S.t*5)*3,0,TAU);ctx.stroke();}
+    else{var r3=(hover?7:5)*sc;
+      if(hintNow){ctx.strokeStyle='#6fdc7f';ctx.lineWidth=2.4;ctx.beginPath();ctx.arc(x,y,13+Math.sin(S.t*8)*3,0,TAU);ctx.stroke();}
+      if(S.path.length===0&&c.c.id==='london'&&S.regId==='uk'&&S.save.tutorial===0){var bob=Math.sin(S.t*4)*7;ctx.fillStyle='#f0b429';ctx.beginPath();ctx.moveTo(x,y-18+bob);ctx.lineTo(x-8,y-34+bob);ctx.lineTo(x+8,y-34+bob);ctx.closePath();ctx.fill();}
       ctx.fillStyle=hover?'#e7eefb':'#8e9bb3';ctx.beginPath();ctx.arc(x,y,r3,0,TAU);ctx.fill();}
-    if(S.regId==='uk'&&S.save.tutorial===0&&c.c.id==='london'&&!S.lit.has('london')){var bob=Math.sin(S.t*4)*7;ctx.fillStyle='#f0b429';ctx.beginPath();ctx.moveTo(x,y-18+bob);ctx.lineTo(x-8,y-34+bob);ctx.lineTo(x+8,y-34+bob);ctx.closePath();ctx.fill();}
     var wd=ctx.measureText(c.c.name).width;var left=c.align==='left'?c.textX:c.align==='right'?c.textX-wd:c.textX-wd/2;
     ctx.fillStyle='rgba(7,11,22,0.78)';ctx.beginPath();ctx.roundRect(left-6,c.textY-10,wd+12,20,8);ctx.fill();
     ctx.fillStyle=litNow?'#ffe7b3':'#e4ebf6';ctx.textAlign=c.align;ctx.fillText(c.c.name,c.textX,c.textY);}}
@@ -333,7 +536,7 @@ function drawFrame(){var dt=Math.min(0.05,(performance.now()-LAST)/1000);LAST=pe
 function hit(x,y){var best=null,bd=70;for(var i=0;i<S.cities.length;i++){var c=S.cities[i];var d=Math.hypot(c.x-x,c.y-y);if(d<bd){bd=d;best=c.c.id;}}return best;}
 canvas.addEventListener('pointermove',function(e){if(S.screen!=='play')return;S.hoverId=hit(e.clientX,e.clientY);});
 addEventListener('pointerdown',function(e){audio.unlock();if(S.screen==='play'){var c=hit(e.clientX,e.clientY);if(c)S.pressedId=c;}});
-addEventListener('pointerup',function(e){if(S.screen!=='play'){S.pressedId=null;return;}var id=hit(e.clientX,e.clientY);S.pressedId=null;if(id)lightCity(id);});
+addEventListener('pointerup',function(e){if(S.screen!=='play'){S.pressedId=null;return;}var id=hit(e.clientX,e.clientY);S.pressedId=null;if(id)tapCity(id);});
 
 /* ---- buttons ---- */
 document.body.addEventListener('click',function(e){var t=e.target;
@@ -345,6 +548,11 @@ document.body.addEventListener('click',function(e){var t=e.target;
   if(t.id==='b-next'){nextFromCard();return;}
   if(t.id==='b-nextc'){nextContinent();return;}
   if(t.id==='b-again'){S.save=fresh();saveS(S.save);enterTitle();return;}
+  if(t.id==='b-undo'){undoCity();return;}
+  if(t.id==='b-restart'){restartRegion();return;}
+  if(t.id==='b-hint'){nextHint();return;}
+  if(t.id==='b-menu'){enterTitle();return;}
+  var id0=t.id||'';if(id0.indexOf('b-con:')===0){var cc=id0.slice(6);var f=findContinent(cc);if(f){S.contId=cc;S.regId=f.regions[0].id;S.save.currentRegion=f.regions[0].id;S.save.currentContinent=cc;saveS(S.save);enterContinentOverlay(cc);}return;}
   var cell=t.closest('.regcell');if(cell&&cell.dataset.id){var id=cell.dataset.id;var fr=findRegion(id);
     var ci=DATA.map(function(c){return c.id;}).indexOf(fr.continent.id);var ri=fr.continent.regions.map(function(r){return r.id;}).indexOf(id);
     if(regionUnlocked(S.save,ci,ri)){S.contId=fr.continent.id;S.regId=id;S.save.currentRegion=id;S.save.currentContinent=fr.continent.id;saveS(S.save);enterPlay();}return;}});
@@ -386,6 +594,11 @@ p.funny{color:#f0b429;font-style:italic;font-size:15px;margin:10px auto 14px;max
 .bar i{display:block;height:100%;background:linear-gradient(90deg,#f0b429,#ffe7b3);border-radius:5px}
 #playhead{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:rgba(7,11,22,0.8);border:1px solid #31405f;border-radius:999px;padding:8px 18px;font-size:15px;z-index:30}
 #playhead .right{color:#f0b429;font-weight:700;margin-left:8px}
+#playctl{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);display:none;gap:8px;z-index:32}
+#playctl .ctl{background:rgba(7,11,22,0.85);border:1px solid #31405f;color:#e4ebf6;border-radius:999px;padding:8px 16px;font-size:14px;cursor:pointer}
+#playctl .ctl:active{transform:scale(0.97)}
+#playctl #b-hint{color:#6fdc7f;border-color:#2e5b36}
+#hintn{color:#6fdc7f;font-weight:700}
 .tut{position:fixed;top:16%;left:50%;transform:translateX(-50%);background:rgba(7,11,22,0.92);border:1px solid #f0b429;border-radius:14px;padding:14px 22px;font-size:17px;text-align:center;z-index:34}
 .tut .dim{font-size:13px}
 .reg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin:10px 0 6px}
@@ -396,6 +609,16 @@ p.funny{color:#f0b429;font-style:italic;font-size:15px;margin:10px auto 14px;max
 .regcell.lock{opacity:0.55;cursor:not-allowed}
 .regcell i{color:#f0b429;font-style:normal;font-size:12px}
 .ct{margin-bottom:4px}
+.contpick{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:4px 0 10px}
+.ctbtn{background:rgba(7,11,22,0.85);border:1px solid #31405f;border-radius:12px;color:#e4ebf6;padding:8px 12px;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.ctbtn b{font-size:12px}
+.ctbtn.done{border-color:#8a6416;background:#1e2a15}
+.ctbtn:active{transform:scale(0.97)}
+.t2{font-size:13px;color:#6b7894;margin:8px 0 2px}
+.rewardimg{max-width:220px;max-height:150px;object-fit:contain;border-radius:12px;margin:6px auto;display:block;border:1px solid #31405f}
+.rewardick{font-size:64px;line-height:1;margin:4px auto}
+.card .fact{font-size:14px;line-height:1.5;max-width:420px;margin:6px auto}
+.card .limit{font-size:12px;color:#8a6416;margin-top:6px}
 .card{text-align:center}
 .bigbuy{font-size:60px;margin-bottom:6px}
 .ie{font-size:12px;color:#6b7894;margin-top:8px;line-height:1.4}
@@ -409,13 +632,20 @@ p.funny{color:#f0b429;font-style:italic;font-size:15px;margin:10px auto 14px;max
 <div class="ov" id="ov-hero"><div class="panel"></div></div>
 <div class="ov" id="ov-world"><div class="panel"></div></div>
 <div id="playhead" style="display:none"></div>
+<div id="playctl">
+  <button class="ctl" id="b-menu">Menu</button>
+  <button class="ctl" id="b-undo">Undo</button>
+  <button class="ctl" id="b-restart">Restart</button>
+  <button class="ctl" id="b-hint">Hint <span id="hintn">3</span></button>
+</div>
 <div id="tut" class="tut" style="display:none"></div>
 <script>
 ${GAME_JS
   .replace("__PLACES__", placesJson)
   .replace("__REGIONS__", regionsJson)
   .replace("__LAND__", landJson)
-  .replace("__BBOX__", bboxJson)}
+  .replace("__BBOX__", bboxJson)
+  .replace("__ROADS__", roadsJson)}
 </script>
 </body>
 </html>
